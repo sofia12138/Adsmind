@@ -94,6 +94,45 @@ class Settings(BaseSettings):
     server_host: str = "0.0.0.0"
     server_port: int = 8000
 
+    # 阶段 2：凭证加密 + OAuth 集成
+    # ─────────────────────────────────────────────────────────
+    # AES-256-GCM 主密钥（32 字节 base64）。生成：
+    #   python -c "from core.crypto import generate_key_b64; print(generate_key_b64())"
+    # 生产环境应通过 KMS / Vault 注入。
+    encryption_key_b64: str = ""
+    # OAuth 回调域名前缀（含协议），客户端授权后跳转回 ${base}/api/integrations/{platform}/oauth/callback
+    oauth_redirect_base_url: str = "http://localhost:8000"
+    # OAuth state HMAC 用密钥；默认复用 jwt_secret_key
+    oauth_state_secret: str = ""
+    oauth_state_ttl_sec: int = 600  # 10 分钟
+
+    # 阶段 7 P0：邮件 + 限流 + 公网地址
+    # ─────────────────────────────────────────────────────────
+    # 邮件后端：console | smtp | disabled（默认 console，开发用日志退货）
+    email_backend: str = "console"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    smtp_timeout_sec: int = 15
+    email_from: str = "no-reply@adsmind.local"
+    email_from_name: str = "AdsMind"
+
+    # 公网访问 base URL（带 scheme，无尾斜杠）。
+    # 用于邮件里的验证 / 邀请链接，缺省回退到 request.origin / host。
+    public_base_url: str = ""
+
+    # 速率限制（per-IP，使用进程内 token bucket，无外部依赖）
+    rate_limit_enabled: bool = True
+    # 单 IP 注册：每小时上限
+    rate_limit_register_per_hour: int = 20
+    # 单 IP 登录：每分钟上限（防爆破）
+    rate_limit_login_per_minute: int = 10
+    # 单 IP 重发验证邮件 / 创建邀请：每小时上限
+    rate_limit_email_per_hour: int = 30
+
     model_config = {"env_file": "../.env", "env_file_encoding": "utf-8"}
 
 

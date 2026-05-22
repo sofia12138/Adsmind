@@ -7,7 +7,7 @@ STATIC_DIR="/var/www/adpilot"
 cd "$PROJECT_DIR"
 
 echo "========================================"
-echo "  AdPilot 一键部署"
+echo "  AdsMind 一键部署"
 echo "========================================"
 echo ""
 

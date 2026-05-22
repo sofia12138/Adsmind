@@ -1,4 +1,4 @@
-# AdPilot 后端 systemd 服务配置
+# AdsMind 后端 systemd 服务配置
 # 复制到 /etc/systemd/system/adpilot.service
 # 修改 <USER>、路径后执行：
 #   sudo systemctl daemon-reload
@@ -6,7 +6,7 @@
 #   sudo systemctl start adpilot
 
 [Unit]
-Description=AdPilot Backend (FastAPI + Uvicorn)
+Description=AdsMind Backend (FastAPI + Uvicorn)
 After=network.target mysql.service
 Wants=mysql.service
 

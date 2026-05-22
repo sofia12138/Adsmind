@@ -605,6 +605,216 @@ _APP_TABLES_SQL = [
         INDEX idx_name (name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
+    # ═══════════════════════════════════════════════════════════════
+    # SaaS 多租户元数据表（阶段 1 骨架，详见 docs/saas-transformation.md）
+    # 仅新建表，不修改任何业务表；业务表的 tenant_id 列由迁移脚本提供。
+    # 不带 tenant_id 的旧 JWT 默认归属 internal tenant (id=1)，向后兼容。
+    # ═══════════════════════════════════════════════════════════════
+    """
+    CREATE TABLE IF NOT EXISTS app_tenants (
+        id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+        slug            VARCHAR(64)  NOT NULL UNIQUE COMMENT '租户唯一标识，用于子域名/路径',
+        name            VARCHAR(200) NOT NULL,
+        plan_id         VARCHAR(50)  NOT NULL DEFAULT 'free',
+        status          VARCHAR(20)  NOT NULL DEFAULT 'active' COMMENT 'active/suspended/canceled',
+        is_internal     TINYINT      NOT NULL DEFAULT 0 COMMENT '1=内部 AdsMind 短剧业务租户',
+        enabled_plugins JSON         DEFAULT NULL COMMENT '启用插件列表，如 ["drama","optimizer"]',
+        settings        JSON         DEFAULT NULL,
+        created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_tenant_members (
+        tenant_id  BIGINT NOT NULL,
+        user_id    BIGINT NOT NULL,
+        role       VARCHAR(50) NOT NULL DEFAULT 'member' COMMENT '租户内角色 owner/admin/member',
+        joined_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, user_id),
+        INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_plan_upgrade_requests (
+        id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id       BIGINT       NOT NULL,
+        from_plan_id    VARCHAR(50)  NOT NULL,
+        to_plan_id      VARCHAR(50)  NOT NULL,
+        contact_email   VARCHAR(255) NOT NULL,
+        message         TEXT         DEFAULT NULL,
+        status          VARCHAR(20)  NOT NULL DEFAULT 'pending' COMMENT 'pending/approved/rejected/canceled',
+        requested_by_user_id BIGINT  DEFAULT NULL,
+        processed_by_user_id BIGINT  DEFAULT NULL,
+        processed_at    DATETIME     DEFAULT NULL,
+        admin_note      TEXT         DEFAULT NULL,
+        created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_tenant (tenant_id),
+        INDEX idx_status (status),
+        INDEX idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_email_verifications (
+        id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_id      BIGINT       NOT NULL,
+        email        VARCHAR(255) NOT NULL,
+        token        VARCHAR(64)  NOT NULL,
+        purpose      VARCHAR(20)  NOT NULL DEFAULT 'register' COMMENT 'register/change',
+        expires_at   DATETIME     NOT NULL,
+        verified_at  DATETIME     DEFAULT NULL,
+        created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_token (token),
+        INDEX idx_user (user_id),
+        INDEX idx_email (email)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_tenant_invitations (
+        id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id          BIGINT       NOT NULL,
+        email              VARCHAR(255) NOT NULL COMMENT '受邀人邮箱',
+        role               VARCHAR(50)  NOT NULL DEFAULT 'member' COMMENT 'owner/admin/member',
+        token              VARCHAR(64)  NOT NULL COMMENT '邀请 token，URL 中传递',
+        expires_at         DATETIME     NOT NULL COMMENT '过期时间',
+        accepted_at        DATETIME     DEFAULT NULL COMMENT '接受时间',
+        accepted_user_id   BIGINT       DEFAULT NULL COMMENT '接受人 user_id',
+        invited_by_user_id BIGINT       DEFAULT NULL COMMENT '邀请人 user_id',
+        revoked_at         DATETIME     DEFAULT NULL COMMENT '撤销时间',
+        created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_token (token),
+        INDEX idx_tenant (tenant_id),
+        INDEX idx_email (email)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_plans (
+        id                  VARCHAR(50)  PRIMARY KEY,
+        name                VARCHAR(100) NOT NULL,
+        accounts_limit      INT          NOT NULL DEFAULT 1,
+        api_calls_monthly   INT          NOT NULL DEFAULT 10000,
+        ai_calls_monthly    INT          NOT NULL DEFAULT 0,
+        sync_interval_min   INT          NOT NULL DEFAULT 60,
+        data_retention_days INT          NOT NULL DEFAULT 30,
+        price_monthly_cents INT          NOT NULL DEFAULT 0,
+        features            JSON         DEFAULT NULL,
+        created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_subscriptions (
+        tenant_id    BIGINT PRIMARY KEY,
+        plan_id      VARCHAR(50)  NOT NULL,
+        period_start DATETIME     NOT NULL,
+        period_end   DATETIME     NOT NULL,
+        status       VARCHAR(20)  NOT NULL DEFAULT 'active' COMMENT 'active/past_due/canceled',
+        external_ref VARCHAR(200) DEFAULT NULL COMMENT 'Stripe subscription id',
+        source       VARCHAR(20)  NOT NULL DEFAULT 'self' COMMENT 'self=自助 / sales=销售开通',
+        updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_status (status),
+        INDEX idx_period_end (period_end)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_usage_counters (
+        tenant_id BIGINT      NOT NULL,
+        metric    VARCHAR(50) NOT NULL COMMENT 'api_calls/ai_calls/sync_runs',
+        period_ym CHAR(7)     NOT NULL COMMENT '2026-05',
+        value     BIGINT      NOT NULL DEFAULT 0,
+        updated_at DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, metric, period_ym)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_api_keys (
+        id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id   BIGINT       NOT NULL,
+        name        VARCHAR(100) NOT NULL,
+        key_prefix  VARCHAR(16)  NOT NULL COMMENT 'API Key 前缀，明文展示',
+        key_hash    VARCHAR(255) NOT NULL COMMENT 'API Key SHA-256 哈希',
+        scopes      JSON         DEFAULT NULL,
+        last_used_at DATETIME    DEFAULT NULL,
+        revoked_at  DATETIME     DEFAULT NULL,
+        created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_tenant (tenant_id),
+        UNIQUE KEY uk_prefix (key_prefix)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_oauth_credentials (
+        id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id         BIGINT       NOT NULL,
+        platform          VARCHAR(20)  NOT NULL COMMENT 'tiktok/meta/google/oceanengine/snapchat',
+        external_id       VARCHAR(100) NOT NULL COMMENT '平台侧账号或商户 ID',
+        access_token_enc  LONGBLOB     NOT NULL COMMENT 'AES-256-GCM 加密：nonce||ciphertext||tag',
+        refresh_token_enc LONGBLOB     DEFAULT NULL,
+        expires_at        DATETIME     DEFAULT NULL,
+        scopes            JSON         DEFAULT NULL,
+        created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_tenant_platform_external (tenant_id, platform, external_id),
+        INDEX idx_expires (expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_scheduled_jobs (
+        id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id   BIGINT       NOT NULL,
+        job_type    VARCHAR(50)  NOT NULL COMMENT 'sync_campaigns/sync_insights/refresh_tokens 等',
+        config      JSON         NOT NULL,
+        cron        VARCHAR(50)  NOT NULL,
+        enabled     TINYINT      NOT NULL DEFAULT 1,
+        last_run_at DATETIME     DEFAULT NULL,
+        next_run_at DATETIME     DEFAULT NULL,
+        created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_next_run (enabled, next_run_at),
+        INDEX idx_tenant (tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    # ═══════════════════════════════════════════════════════════════
+    # 阶段 4 应用配置模块（Tenant → Application 投放对象层）
+    # 一个租户可创建多个 Application，每个 Application 是客户自主管理的
+    # "投放对象"（一个 App / 一款游戏 / 一个产品），独立绑定广告账号 + 归因 + 看板。
+    # 详见 docs/saas-transformation.md §22。
+    # ═══════════════════════════════════════════════════════════════
+    """
+    CREATE TABLE IF NOT EXISTS app_applications (
+        id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id         BIGINT       NOT NULL COMMENT '归属租户',
+        slug              VARCHAR(64)  NOT NULL COMMENT '应用 slug（tenant 内唯一）',
+        name              VARCHAR(128) NOT NULL COMMENT '应用名称',
+        description       VARCHAR(512) DEFAULT NULL,
+        icon_url          VARCHAR(512) DEFAULT NULL,
+        platform_type     VARCHAR(20)  NOT NULL DEFAULT 'multi'
+                          COMMENT 'ios / android / web / mini_program / multi',
+        bundle_id         VARCHAR(255) DEFAULT NULL COMMENT 'iOS bundle / Android package',
+        store_url_ios     VARCHAR(512) DEFAULT NULL,
+        store_url_android VARCHAR(512) DEFAULT NULL,
+        industry          VARCHAR(64)  DEFAULT NULL COMMENT '行业（短剧/游戏/电商等）',
+        status            VARCHAR(20)  NOT NULL DEFAULT 'active'
+                          COMMENT 'active / archived',
+        is_default        TINYINT      NOT NULL DEFAULT 0 COMMENT '1=租户默认应用，旧数据兜底',
+        settings_json     JSON         DEFAULT NULL COMMENT '灵活配置：归因/回传/默认目标地区等',
+        created_by        BIGINT       DEFAULT NULL,
+        created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_tenant_slug (tenant_id, slug),
+        INDEX idx_tenant_status (tenant_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_application_members (
+        application_id BIGINT      NOT NULL,
+        user_id        BIGINT      NOT NULL,
+        role           VARCHAR(20) NOT NULL DEFAULT 'editor'
+                       COMMENT 'owner / admin / editor / viewer',
+        joined_at      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (application_id, user_id),
+        INDEX idx_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
 ]
 
 
@@ -637,6 +847,10 @@ _PANEL_SEED = [
     ("insight_config",         "ROI阈值配置",     "系统管理",   "/insight-config",          63),
     ("oplog",                  "操作日志",        "系统管理",   "/oplog",                   64),
     ("optimizer_directory",    "优化师名单配置",  "系统管理",   "/optimizer-directory",     65),
+    # 阶段 4 X1：应用配置模块
+    ("applications",           "应用管理",        "系统管理",   "/applications",            66),
+    # 阶段 7：团队邀请
+    ("team",                   "团队成员",        "系统管理",   "/team",                    67),
     # 广告资产库
     ("asset_landing_pages",    "落地页库",        "广告资产库", "/assets/landing-pages",    70),
     ("asset_copy_packs",       "文案库",          "广告资产库", "/assets/copy-packs",       71),
@@ -679,6 +893,11 @@ def init_app_tables():
         _seed_role_panels(cur, conn)
         _migrate_super_admin_ops_dashboard_user_override(cur, conn)
         _seed_insight_config(cur, conn)
+        _seed_default_plans(cur, conn)
+        _seed_internal_tenant(cur, conn)
+        _seed_internal_default_application(cur, conn)
+        _migrate_rebrand_adpilot_to_adsmind(cur, conn)
+        _migrate_app_users_email_verified(cur, conn)
         logger.info("APP 应用库元数据表初始化完成")
     except Exception as e:
         logger.error(f"init_app_tables 失败: {e}")
@@ -769,6 +988,150 @@ def _seed_insight_config(cur, conn):
     )
     conn.commit()
     logger.info("已写入 Insight 默认 ROI 阈值配置")
+
+
+# ─── SaaS 多租户骨架 seed（阶段 1） ───────────────────────────────
+
+_DEFAULT_PLANS_SEED = [
+    # (id, name, accounts_limit, api_calls_monthly, ai_calls_monthly,
+    #  sync_interval_min, data_retention_days, price_monthly_cents, features)
+    ("internal",   "Internal",     999, 99999999, 99999999,  5, 3650,    0,
+     '{"all_plugins": true}'),
+    ("free",       "Free",           1,    5000,        0, 60,   30,    0,
+     '{"plugins": ["core_ads"]}'),
+    ("starter",    "Starter",        3,   50000,      100, 30,   90, 4900,
+     '{"plugins": ["core_ads","ai_studio"]}'),
+    ("pro",        "Pro",           10,  300000,     1000, 15,  180, 19900,
+     '{"plugins": ["core_ads","ai_studio"]}'),
+    ("business",   "Business",      30, 1000000,     5000, 10,  365, 49900,
+     '{"plugins": ["core_ads","ai_studio"]}'),
+    ("enterprise", "Enterprise",   999, 99999999,   99999, 5,  3650, 0,
+     '{"plugins": ["core_ads","ai_studio"], "custom_sla": true}'),
+]
+
+
+def _seed_default_plans(cur, conn):
+    """幂等：补齐默认套餐种子（INSERT IGNORE，已存在则不动）"""
+    count = 0
+    for (pid, name, acc, api_m, ai_m, sync_min, retent, price, features) in _DEFAULT_PLANS_SEED:
+        cur.execute(
+            """INSERT IGNORE INTO app_plans
+               (id, name, accounts_limit, api_calls_monthly, ai_calls_monthly,
+                sync_interval_min, data_retention_days, price_monthly_cents, features)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (pid, name, acc, api_m, ai_m, sync_min, retent, price, features),
+        )
+        count += cur.rowcount
+    conn.commit()
+    if count:
+        logger.info(f"已补充写入 {count} 条默认套餐种子")
+
+
+def _migrate_app_users_email_verified(cur, conn):
+    """阶段 7 #3：给 app_users 表加 email_verified_at 列（幂等）。
+
+    历史用户保留 NULL（视为已"老用户豁免"，前端不强弹验证 banner）；
+    新通过 /api/auth/register 注册的用户会立即创建 verification 记录，
+    一旦点验证链接后回填 verified_at + 同步更新 app_users.email_verified_at。
+    """
+    try:
+        cur.execute("""SHOW COLUMNS FROM app_users LIKE 'email_verified_at'""")
+        exists = cur.fetchone() is not None
+        if exists:
+            return
+        cur.execute("""ALTER TABLE app_users
+                       ADD COLUMN email_verified_at DATETIME NULL DEFAULT NULL
+                       COMMENT '邮箱验证时间；NULL 表示历史用户或未验证' """)
+        conn.commit()
+        logger.info("迁移：app_users 已新增 email_verified_at 列")
+    except Exception as e:
+        logger.warning(f"迁移 email_verified_at 失败（不影响启动）：{e}")
+
+
+def _migrate_rebrand_adpilot_to_adsmind(cur, conn):
+    """幂等：把历史播种数据中的产品名 'AdPilot' 替换成 'AdsMind'。
+
+    只命中 seed 函数曾经写入的固定字符串（tenant_id=1 的 name 字段、
+    is_default=1 的 application name），不影响其它用户数据。
+
+    旧值                  → 新值
+      AdPilot 内部         → AdsMind 内部
+      AdPilot 默认应用     → AdsMind 默认应用
+    """
+    try:
+        cur.execute(
+            """UPDATE app_tenants
+               SET name = 'AdsMind 内部'
+               WHERE id = 1 AND name = 'AdPilot 内部'"""
+        )
+        n1 = cur.rowcount
+        cur.execute(
+            """UPDATE app_applications
+               SET name = 'AdsMind 默认应用'
+               WHERE is_default = 1 AND name = 'AdPilot 默认应用'"""
+        )
+        n2 = cur.rowcount
+        conn.commit()
+        if n1 + n2:
+            logger.info(f"rebrand 迁移：tenant 重命名 {n1} 行，application 重命名 {n2} 行")
+    except Exception as e:
+        logger.warning(f"rebrand 迁移失败（不影响启动）：{e}")
+
+
+def _seed_internal_default_application(cur, conn):
+    """幂等：为 internal tenant (id=1) 创建一个默认应用 (id=1)。
+
+    所有未显式归属应用的现存数据（biz_ad_accounts 等）通过迁移脚本 003
+    回填到这个 default application，向后兼容。
+
+    详见 docs/saas-transformation.md §22。
+    """
+    cur.execute("SELECT id FROM app_applications WHERE tenant_id = 1 AND is_default = 1 LIMIT 1")
+    if cur.fetchone():
+        return
+    import json as _json
+    settings = _json.dumps({
+        "default_currency": "USD",
+        "default_timezone": "Asia/Shanghai",
+        "attribution": {"provider": "metis", "window_days": 121},
+    })
+    cur.execute(
+        """INSERT INTO app_applications
+           (tenant_id, slug, name, description, platform_type, industry,
+            status, is_default, settings_json)
+           VALUES (1, 'default', 'AdsMind 默认应用',
+                   '内部租户的默认应用，承载现有所有业务数据',
+                   'multi', 'drama_overseas', 'active', 1, %s)""",
+        (settings,),
+    )
+    conn.commit()
+    logger.info("已为 internal tenant 创建 default application")
+
+
+def _seed_internal_tenant(cur, conn):
+    """幂等：确保 id=1 的 internal 租户存在；用于现有数据兜底归属。
+
+    详见 docs/saas-transformation.md §6.3。
+    """
+    cur.execute("SELECT id FROM app_tenants WHERE id = 1")
+    if cur.fetchone():
+        return
+    import json as _json
+    enabled = _json.dumps([
+        "core_ads",
+        "drama",
+        "optimizer",
+        "attribution_metis",
+        "returned_conversion",
+        "ops_panel_polardb",
+    ])
+    cur.execute(
+        """INSERT INTO app_tenants (id, slug, name, plan_id, status, is_internal, enabled_plugins)
+           VALUES (1, 'internal', 'AdsMind 内部', 'internal', 'active', 1, %s)""",
+        (enabled,),
+    )
+    conn.commit()
+    logger.info("已创建 internal 租户 (id=1)，启用全部插件")
 
 
 # ═══════════════════════════════════════════════════════════

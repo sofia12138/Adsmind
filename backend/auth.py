@@ -1,4 +1,8 @@
-"""用户认证模块：JWT + 基于 MySQL 的用户存储（通过 user_service）"""
+"""用户认证模块：JWT + 基于 MySQL 的用户存储（通过 user_service）。
+
+阶段 1 起 JWT payload 增加 `tenant_id` claim；旧 token（无 claim）默认归属
+internal tenant (id=1)，向后兼容。详见 docs/saas-transformation.md §7.2。
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -9,6 +13,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from config import get_settings
+from core.tenant import INTERNAL_TENANT_ID
 from services import user_service
 
 
@@ -22,10 +27,12 @@ class User(BaseModel):
 
 
 class UserOut(BaseModel):
+    id: Optional[int] = None
     username: str
     role: str
     display_name: str
     assigned_accounts: list[str]
+    email: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -107,18 +114,50 @@ def delete_user(username: str):
 def list_users() -> list[UserOut]:
     rows = user_service.list_users()
     return [UserOut(
+        id=u.get("id"),
         username=u["username"],
         role=u.get("role", "optimizer"),
         display_name=u.get("display_name", u["username"]),
         assigned_accounts=u.get("assigned_accounts") or [],
+        email=u.get("email"),
     ) for u in rows]
 
 
 # ---------- JWT ----------
-def create_token(username: str, role: str) -> str:
+def create_token(
+    username: str,
+    role: str,
+    tenant_id: Optional[int] = None,
+    tenant_slug: Optional[str] = None,
+    application_id: Optional[int] = None,
+) -> str:
+    """签发 JWT。
+
+    `tenant_id` / `tenant_slug` 为阶段 1 新增的 claim：
+      - 旧调用方传 None → 不写入 claim，向后兼容（解 token 后由 TenantMiddleware
+        兜底为 internal tenant id=1）。
+      - 新调用方传明确 tenant → 写入 claim，后续中间件直接读取。
+
+    `application_id` 为阶段 4 X1 新增的 claim：
+      - None → 不写入；ApplicationMiddleware 自动落到该 tenant 的 default app。
+      - 传入 → 写入 claim，中间件直接采用该应用。
+    """
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(hours=settings.jwt_expire_hours)
-    payload = {"sub": username, "role": role, "exp": expire}
+    payload: dict = {"sub": username, "role": role, "exp": expire}
+
+    # 阶段 1 向后兼容策略：若调用方未指定 tenant，默认归属 internal tenant (id=1)。
+    # 这样所有现有 routes/users.py:login 等调用点都自动升级，无需逐处改动。
+    if tenant_id is None:
+        from core.tenant import INTERNAL_TENANT_ID, INTERNAL_TENANT_SLUG
+        tenant_id = INTERNAL_TENANT_ID
+        if not tenant_slug:
+            tenant_slug = INTERNAL_TENANT_SLUG
+    payload["tenant_id"] = int(tenant_id)
+    if tenant_slug:
+        payload["tenant_slug"] = tenant_slug
+    if application_id is not None:
+        payload["application_id"] = int(application_id)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
@@ -140,7 +179,32 @@ def get_current_user(request: Request) -> User:
     user = get_user(payload["sub"])
     if not user:
         raise HTTPException(status_code=401, detail="用户不存在")
+    # 把 JWT 里的 tenant claim 兜底注入 request.state（在 TenantMiddleware 之外提供保险）
+    _attach_tenant_from_payload(request, payload)
     return user
+
+
+def _attach_tenant_from_payload(request: Request, payload: dict) -> None:
+    """若 JWT 含 tenant_id 且 request.state 尚未挂载 tenant，则补充挂载。
+
+    这是 TenantMiddleware 的兜底路径：例如某些路由可能跳过中间件，
+    或调用链直接使用 Depends(get_current_user) 而未走中间件。
+    """
+    try:
+        existing = getattr(request.state, "tenant", None)
+        if existing is not None:
+            return
+        tid = payload.get("tenant_id")
+        if tid is None:
+            return
+        from core.tenant import get_tenant_by_id  # 延迟引入避免循环依赖
+
+        ctx = get_tenant_by_id(int(tid))
+        if ctx is not None:
+            request.state.tenant = ctx
+    except Exception:
+        # 兜底失败不影响鉴权主流程
+        pass
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:

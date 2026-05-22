@@ -1,4 +1,4 @@
-"""AdPilot — 广告投放管理系统 FastAPI 入口"""
+"""AdsMind — 广告投放管理系统 FastAPI 入口"""
 
 import sys
 from contextlib import asynccontextmanager
@@ -52,8 +52,9 @@ async def _sync_all_job():
         logger.error(f"全量同步失败: {e}")
 
     # 全量同步完成后，附带同步优化师映射和事实表
+    # 阶段 3 批次 1：路径迁至 plugins.optimizer.sync_job（原 tasks.sync_optimizer 保留 shim）
     try:
-        from tasks.sync_optimizer import run as sync_optimizer_run
+        from plugins.optimizer.sync_job import run as sync_optimizer_run
         opt_start = end - timedelta(days=7)
         sync_optimizer_run(str(opt_start), str(end))
         logger.info("优化师映射同步完成")
@@ -62,8 +63,9 @@ async def _sync_all_job():
 
     # 附带同步剧级映射和事实表（fact_drama_daily）
     # 复用近 7 天的窗口，覆盖回传归因可能的滞后写入
+    # 阶段 3 批次 1：路径迁至 plugins.drama.sync_job（原 tasks.sync_drama 保留 shim）
     try:
-        from tasks.sync_drama import run as sync_drama_run
+        from plugins.drama.sync_job import run as sync_drama_run
         drama_start = end - timedelta(days=7)
         sync_drama_run(str(drama_start), str(end))
         logger.info("剧级映射/事实表同步完成")
@@ -207,6 +209,17 @@ async def _sync_ops_polardb_intraday_job():
         logger.error(f"PolarDB 运营实时同步失败: {e}")
 
 
+async def _oauth_credential_alert_job():
+    """阶段 7 P0：每日扫描即将过期 / 已过期的 OAuth 凭证并通知租户管理员。"""
+    import asyncio
+    try:
+        from tasks.oauth_credential_alerts import run as _run_alerts
+        result = await asyncio.to_thread(_run_alerts)
+        logger.info(f"OAuth 凭证过期扫描完成: {result}")
+    except Exception as e:
+        logger.warning(f"OAuth 凭证过期扫描失败: {e}")
+
+
 async def _sync_attribution_intraday_job():
     """Job 4：CK D0 实时归因同步 (默认窗口=今天+昨天 LA)
 
@@ -241,8 +254,106 @@ async def lifespan(application: FastAPI):
     migrate_json_data()
     from services.user_service import ensure_default_admin
     ensure_default_admin()
+
+    # 阶段 1：为所有现有 app_users 行幂等回填 internal tenant 成员关系。
+    # 详见 docs/saas-transformation.md §20.4。
+    try:
+        from repositories import tenant_member_repository
+        from core.tenant import INTERNAL_TENANT_ID
+        tenant_member_repository.backfill_internal_members(INTERNAL_TENANT_ID)
+    except Exception as e:
+        logger.warning(f"internal tenant 成员回填失败（不影响启动）：{e}")
+
+    # 阶段 4 X1：为所有 active 租户幂等播种 default application。
+    # internal tenant 的 default app 已在 init_app_tables 中处理；
+    # 此处覆盖未来注册的外部租户场景（若 app_tenants 表有其它行）。
+    # 详见 docs/saas-transformation.md §22。
+    try:
+        from repositories import application_repository
+        from db import get_app_conn
+        with get_app_conn() as _conn:
+            _cur = _conn.cursor()
+            _cur.execute("SELECT id, name FROM app_tenants WHERE status = 'active'")
+            _all_tenants = _cur.fetchall() or []
+        for _t in _all_tenants:
+            application_repository.ensure_default_for_tenant(
+                int(_t["id"]),
+                name=f"{_t['name']} 默认应用",
+            )
+        if _all_tenants:
+            logger.info(f"已为 {len(_all_tenants)} 个租户确保 default application 存在")
+    except Exception as e:
+        logger.warning(f"default application 幂等播种失败（不影响启动）：{e}")
+
+    # 阶段 2：加密链路自检
+    # ────────────────────────────────────────────────────────
+    # 环境识别：
+    #   - APP_ENV=production / prod                  → 必须配置 ENCRYPTION_KEY_B64
+    #                                                  否则启动失败（防止生产用临时密钥）
+    #   - jwt_secret_key 仍是默认 'change-me-in-production' → 视为开发环境，允许临时密钥
+    #   - 其余                                       → 允许临时密钥但 WARN
+    try:
+        import os as _os
+        from core import crypto
+        env_name = (_os.getenv("APP_ENV", "") or "").strip().lower()
+        is_prod = env_name in ("production", "prod")
+        if not crypto.is_configured():
+            if is_prod:
+                logger.error(
+                    "❌ 生产环境（APP_ENV={}）未配置 ENCRYPTION_KEY_B64，启动中止。"
+                    " 请运行：python -c \"from core.crypto import generate_key_b64; print(generate_key_b64())\""
+                    " 然后写入环境变量再重启。".format(env_name)
+                )
+                raise RuntimeError(
+                    "ENCRYPTION_KEY_B64 must be configured in production"
+                )
+            _ephemeral = crypto.generate_key_b64()
+            _os.environ["ENCRYPTION_KEY_B64"] = _ephemeral
+            crypto._load_keyring.cache_clear()
+            logger.warning(
+                "⚠ 未配置 ENCRYPTION_KEY_B64，已为本进程生成临时密钥（重启后 OAuth 密文需重新授权）。"
+                " 生产环境请显式设置 APP_ENV=production 并写入持久化密钥。"
+            )
+        if crypto.is_configured():
+            if crypto.selftest():
+                logger.info("加密自检通过（AES-256-GCM）")
+            else:
+                logger.error("⚠ 加密自检失败！请检查 ENCRYPTION_KEY_B64 是否正确")
+                if is_prod:
+                    raise RuntimeError("crypto selftest failed in production")
+
+        # JWT secret 弱密钥提醒（生产强制报错）
+        try:
+            jwt_secret = getattr(get_settings(), "jwt_secret_key", "") or ""
+        except Exception:
+            jwt_secret = ""
+        if jwt_secret in ("", "change-me-in-production"):
+            if is_prod:
+                logger.error(
+                    "❌ 生产环境 jwt_secret_key 仍为默认值，启动中止。"
+                    " 请在环境变量中设置 JWT_SECRET_KEY=<随机 32+ 位字符串>"
+                )
+                raise RuntimeError("jwt_secret_key must be customized in production")
+            logger.warning(
+                "⚠ jwt_secret_key 仍是默认 'change-me-in-production'，请勿用于生产。"
+            )
+    except RuntimeError:
+        # 重新抛出，阻止启动
+        raise
+    except Exception as e:
+        logger.warning(f"加密模块加载失败：{e}")
+
     from services.account_service import seed_from_env
     seed_from_env()
+
+    # 阶段 3 批次 1：插件 jobs/hooks 注册（本批次插件暂未声明 jobs，
+    # 但接入接口便于批次 2 attribution_metis / ops_panel、批次 3 returned_conversion 复用）
+    try:
+        from core import plugin_loader
+        plugin_jobs_summary = plugin_loader.register_jobs_and_hooks(_scheduler, get_settings())
+        logger.info(f"插件 jobs/hooks 注册完成: {plugin_jobs_summary}")
+    except Exception as e:
+        logger.warning(f"插件 jobs/hooks 注册失败（不影响启动）：{e}")
 
     now = datetime.now()
 
@@ -324,6 +435,17 @@ async def lifespan(application: FastAPI):
         next_run_time=now + timedelta(minutes=2),  # 启动后 2 分钟立刻跑首次
     )
 
+    # Job 9：OAuth 凭证过期扫描（每天一次）
+    _scheduler.add_job(
+        _oauth_credential_alert_job,
+        trigger="cron",
+        hour=3,
+        minute=20,
+        id="oauth_credential_alerts",
+        replace_existing=True,
+        next_run_time=now + timedelta(minutes=8),  # 启动后 8 分钟跑一次首扫
+    )
+
     # Job 4：CK D0 实时归因同步（默认 disabled；ENABLE_CK_INTRADAY_SYNC=true 开启）
     # 启用后每 30 分钟拉 metis.dwd_*_rt 当天 + 昨天 LA 数据，覆盖到 biz_attribution_ad_intraday
     _settings = get_settings()
@@ -361,7 +483,7 @@ async def lifespan(application: FastAPI):
 # ── 应用实例 ──────────────────────────────────────────────
 
 app = FastAPI(
-    title="AdPilot - 广告投放管理系统",
+    title="AdsMind - 广告投放管理系统",
     description="对接 TikTok & Meta Marketing API，支持广告系列/广告组/广告的创建、管理和数据报表",
     version="1.0.0",
     lifespan=lifespan,
@@ -381,6 +503,17 @@ def _setup_middleware(application: FastAPI):
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # 多租户上下文中间件（阶段 1）：识别 JWT/Header 中的 tenant，
+    # 注入 request.state.tenant；未识别时降级为 internal tenant (id=1)。
+    # 不阻断请求，鉴权仍由 auth.get_current_user 负责。
+    from core.tenant import TenantMiddleware
+    from core.application import ApplicationMiddleware
+
+    # 注意 Starlette 中间件是 LIFO 链：后 add 的更外层。
+    # 所以先 add ApplicationMiddleware（内层）、再 add TenantMiddleware（外层），
+    # 这样请求进入时先解析 tenant、再解析 application（依赖 tenant 上下文）。
+    application.add_middleware(ApplicationMiddleware)
+    application.add_middleware(TenantMiddleware)
 
 
 _setup_middleware(app)
@@ -411,28 +544,44 @@ def _register_routers(application: FastAPI):
     from routes.accounts import router as accounts_router
     from routes.analysis import router as analysis_router
     from routes.sync import router as sync_router
-    from routes.drama import router as drama_router
-    from routes.designer_performance import router as designer_performance_router
-    from routes.optimizer_performance import router as optimizer_performance_router
-    from routes.optimizer_directory import router as optimizer_directory_router
     from routes.meta_assets import router as meta_assets_router
     from routes.ad_assets import router as ad_assets_router
     from routes.tiktok_materials import router as tiktok_materials_router
     from routes.attribution import router as attribution_router
     from routes.ops import router as ops_router
+    from routes.integrations import router as integrations_router
+    from routes.applications import router as applications_router
+    from routes.registration import router as registration_router
+    from routes.quota import router as quota_router
+    from routes.billing import router as billing_router
+    from routes.invitations import (
+        tenant_router as invitations_tenant_router,
+        public_router as invitations_public_router,
+    )
 
     for r in [
+        registration_router,
+        invitations_public_router,  # 挂在 /auth 前缀下，匿名可访问
+        invitations_tenant_router,  # 挂在 /tenant 前缀下，需要 admin
+        quota_router,
+        billing_router,
         auth_router, users_router, campaign_router, adgroup_router,
         ad_router, report_router, creative_router, advertiser_router,
         meta_account_router, meta_campaign_router, meta_adset_router,
         meta_ad_router, meta_report_router, bizdata_router, oplog_router,
         template_router, biz_router, panels_router, insight_router,
-        accounts_router, analysis_router, sync_router, drama_router,
-        designer_performance_router, optimizer_performance_router,
-        optimizer_directory_router, meta_assets_router, ad_assets_router,
+        accounts_router, analysis_router, sync_router,
+        meta_assets_router, ad_assets_router,
         tiktok_materials_router, attribution_router, ops_router,
+        integrations_router, applications_router,
     ]:
         application.include_router(r, prefix="/api")
+
+    # 阶段 3 批次 1：drama / optimizer / designer_performance 改由插件自行注册
+    # 路由 prefix 不变（仍是 /api/...），仅注册路径从 routes.* 迁至 plugins.*.routes
+    from core import plugin_loader
+    plugin_summary = plugin_loader.register_routes(application)
+    logger.info(f"插件路由注册完成: {plugin_summary}")
 
 
 _register_routers(app)
@@ -527,7 +676,7 @@ async def index():
     index_file = static_dir / "index.html"
     if index_file.exists():
         return FileResponse(str(index_file))
-    return {"message": "AdPilot API is running"}
+    return {"message": "AdsMind API is running"}
 
 
 @app.get("/health", tags=["系统"])
@@ -540,6 +689,20 @@ async def health():
         "tiktok_advertiser_id": settings.tiktok_advertiser_id,
         "meta_ad_account_id": settings.meta_ad_account_id,
     }
+
+
+# ── SPA fallback ──────────────────────────────────────────
+# React Router 的前端路由（/login, /dashboard 等）直接访问或刷新时，
+# 后端找不到对应处理器，必须 fallback 到 index.html 由前端接管。
+# 注意：必须最后注册，以避免拦截已声明的 API/静态路径。
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str):
+    if full_path.startswith(("api/", "static/", "docs", "redoc", "openapi.json")):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
 
 # ── 开发入口 ──────────────────────────────────────────────

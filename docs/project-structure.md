@@ -1,4 +1,4 @@
-# AdPilot 项目结构说明
+# AdsMind 项目结构说明
 
 ```
 adpilot/
@@ -81,3 +81,4 @@ React SPA 前端，使用 Vite 构建。
 | `deployment.md` | 服务器部署完整流程 |
 | `local-development.md` | 本地开发启动指南 |
 | `project-structure.md` | 本文件 |
+| `saas-transformation.md` | 通用广告 SaaS 改造方案（草案 v1.0） |

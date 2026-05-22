@@ -1,4 +1,4 @@
-# AdPilot Nginx 配置示例
+# AdsMind Nginx 配置示例
 # 复制本文件到 /etc/nginx/sites-available/adpilot.conf
 # 然后 ln -s /etc/nginx/sites-available/adpilot.conf /etc/nginx/sites-enabled/
 # 修改 <YOUR_DOMAIN> 和 root 路径后 sudo nginx -t && sudo systemctl reload nginx
