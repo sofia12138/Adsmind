@@ -5,10 +5,25 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from auth import require_admin, get_current_user
+from core.application import ApplicationCtx, get_current_application
 from services import account_service
 from services.oplog_service import log_operation
 
 router = APIRouter(prefix="/ad-accounts", tags=["广告账户管理"])
+
+
+def _filter_by_application(application: ApplicationCtx) -> int | None:
+    """阶段 4 X3-filter / 阶段 7 多租户加固：账号过滤策略。
+
+    规则表：
+      - **internal tenant 的默认应用** → 全量视角（不过滤），兼容内部 26 个账号的历史链路
+      - **internal tenant 的非默认应用** → 严格按 application_id 过滤
+      - **外部租户（含其默认应用）** → 严格按 application_id 过滤，避免跨租户泄露
+    """
+    from core.tenant import INTERNAL_TENANT_ID
+    if application.is_default and application.tenant_id == INTERNAL_TENANT_ID:
+        return None
+    return application.id
 
 
 class AddAccountRequest(BaseModel):
@@ -41,8 +56,15 @@ class VerifyTokenRequest(BaseModel):
 async def list_accounts(
     platform: str | None = Query(None),
     _user=Depends(get_current_user),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
-    return {"data": account_service.list_accounts(platform)}
+    app_filter = _filter_by_application(application)
+    return {
+        "data": account_service.list_accounts(platform, application_id=app_filter),
+        "application_id": application.id,
+        "application_name": application.name,
+        "filtered": app_filter is not None,
+    }
 
 
 @router.get("/{row_id}")
@@ -65,7 +87,30 @@ async def verify_token(req: VerifyTokenRequest, _user=Depends(require_admin)):
 
 
 @router.post("/")
-async def add_account(req: AddAccountRequest, user=Depends(require_admin)):
+async def add_account(
+    req: AddAccountRequest,
+    user=Depends(require_admin),
+    application: ApplicationCtx = Depends(get_current_application),
+):
+    # 阶段 4 X3-filter / 阶段 7 加固：新建账号是否要绑定到当前应用
+    # - internal tenant + 默认应用 → 保持 NULL，兼容历史"全租户视角"语义
+    # - internal tenant + 非默认应用 → 绑定到当前应用
+    # - external tenant + 任何应用 → 强制绑定到当前应用（否则刚建完就看不见，
+    #   并会绕过配额计数）
+    from core.tenant import INTERNAL_TENANT_ID
+    is_internal_default = application.is_default and application.tenant_id == INTERNAL_TENANT_ID
+    bind_to_app = None if is_internal_default else application.id
+
+    # 阶段 7 配额限流：external 租户检查账号数上限；internal 永不拦截。
+    # 这里 existing_account_id 传当次入参的 account_id（若已属于本租户其它应用，
+    # quota_service 会自动放行；否则等价于 distinct +1）。
+    from services import quota_service
+    quota_service.enforce_account_quota(
+        application.tenant_id,
+        additional=1,
+        existing_account_id=req.account_id,
+    )
+
     row = account_service.add_account(
         platform=req.platform,
         account_id=req.account_id,
@@ -75,6 +120,7 @@ async def add_account(req: AddAccountRequest, user=Depends(require_admin)):
         app_secret=req.app_secret,
         currency=req.currency,
         timezone=req.timezone,
+        application_id=bind_to_app,
     )
     log_operation(
         username=user.username,

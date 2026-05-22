@@ -1,7 +1,7 @@
 """归因日报数据访问层 — biz_attribution_ad_daily (adpilot_biz)
 
 数据来源：metis_dw.ads_ad_delivery_di（MaxCompute）→ 同步到 ClickHouse 的 metis.ads_ad_delivery_di
-        → AdPilot 通过 sync_attribution_daily 任务从 CK 拉到本表
+        → AdsMind 通过 sync_attribution_daily 任务从 CK 拉到本表
 
 口径要点：
 - 金额已在同步层从美分转 USD（DECIMAL(14,4)）

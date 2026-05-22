@@ -51,6 +51,10 @@ export interface BizOverview {
   avg_cpi: number | null
   avg_cpa: number | null
   avg_roas: number | null
+  /** 阶段 4 X3-filter：后端因当前应用未绑定账号 / 多账号未指定时返回的友好提示。 */
+  _hint?: string
+  /** 阶段 4 X3-filter：当前请求落在哪个 application。 */
+  _application_id?: number
 }
 
 // ---------------------------------------------------------------------------

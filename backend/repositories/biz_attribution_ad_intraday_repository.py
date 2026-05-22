@@ -1,7 +1,7 @@
 """当日实时归因数据访问层 — biz_attribution_ad_intraday (adpilot_biz)
 
 数据来源：metis_dw.ods_media_report_data_hi（小时级媒体口径）+ dwd_invest_recharge_df（充值事实）
-        → AdPilot 通过 sync_attribution_intraday 任务每 30 分钟刷新本表
+        → AdsMind 通过 sync_attribution_intraday 任务每 30 分钟刷新本表
 
 口径要点：
 - 时间维度只有 ds_account_local（账户日，= ods.stat_time_day）+ ds_la（账户都是 LA/Phoenix 时近似等价）

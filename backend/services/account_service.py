@@ -31,11 +31,20 @@ def _serialize(row: dict) -> dict:
     return out
 
 
-def list_accounts(platform: str | None = None) -> list[dict]:
+def list_accounts(
+    platform: str | None = None,
+    application_id: int | None = None,
+) -> list[dict]:
+    """列出广告账号。
+
+    `application_id` 阶段 4 X3-filter：
+      - None       → 全租户视角（默认应用/旧调用方）
+      - 非 None    → 严格按应用过滤
+    """
     if platform:
-        rows = biz_account_repository.list_by_platform(platform)
+        rows = biz_account_repository.list_by_platform(platform, application_id=application_id)
     else:
-        rows = biz_account_repository.list_all()
+        rows = biz_account_repository.list_all(application_id=application_id)
     return [_serialize(r) for r in rows]
 
 
@@ -111,7 +120,13 @@ async def _verify_meta(access_token: str) -> dict:
 
 def add_account(*, platform: str, account_id: str, account_name: str = "",
                 access_token: str, app_id: str = "", app_secret: str = "",
-                currency: str = "USD", timezone: str = "UTC") -> dict:
+                currency: str = "USD", timezone: str = "UTC",
+                application_id: int | None = None) -> dict:
+    """新增广告账号。
+
+    `application_id` 阶段 4 X3-filter：传入时新账号自动绑定到该应用。
+    若未传，binding 在 biz_account_repository 层保留 NULL，由迁移 003 兜底到 default。
+    """
     if platform not in ("tiktok", "meta"):
         raise ValueError("platform 必须为 tiktok 或 meta")
     if not account_id or not access_token:
@@ -132,9 +147,17 @@ def add_account(*, platform: str, account_id: str, account_name: str = "",
         status="ACTIVE",
         is_default=is_default,
     )
-
     row = biz_account_repository.get_by_platform_account(platform, account_id)
-    logger.info(f"账户已添加: platform={platform}, account_id={account_id}")
+
+    # 创建后立即绑定到目标应用（如果传了）
+    if row and application_id is not None:
+        biz_account_repository.bind_to_application(int(row["id"]), application_id)
+        row = biz_account_repository.get_by_id(int(row["id"]))
+
+    logger.info(
+        f"账户已添加: platform={platform}, account_id={account_id}, "
+        f"application_id={application_id}"
+    )
     return _serialize(row) if row else {}
 
 

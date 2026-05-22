@@ -5,9 +5,15 @@ import asyncio
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 
 from config import get_settings
+from core.application import ApplicationCtx, get_current_application
+from core.biz_filter import (
+    filter_rows_by_account_whitelist,
+    get_application_account_whitelist,
+    resolve_account_filter,
+)
 from repositories import (
     biz_daily_report_repository,
     biz_campaign_repository,
@@ -54,17 +60,22 @@ def _resolve_source(source: str) -> str:
 @router.get("/campaigns")
 async def biz_campaigns(
     platform: Optional[str] = Query(None, description="平台过滤: tiktok / meta"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     """返回 BIZ 库中所有 campaign（含 status / account_id / raw_json）"""
     if platform:
         rows = await asyncio.to_thread(biz_campaign_repository.list_by_platform, platform)
     else:
         rows = await asyncio.to_thread(biz_campaign_repository.list_all)
+    # 阶段 4 X3-filter Round 3：list 型接口按 account_id 白名单后置过滤
+    rows = filter_rows_by_account_whitelist(
+        rows, get_application_account_whitelist(application)
+    )
     for row in rows:
         for k in ("created_at", "updated_at"):
             if k in row and row[k] is not None:
                 row[k] = str(row[k])
-    return {"code": 0, "message": "ok", "data": rows}
+    return {"code": 0, "message": "ok", "data": rows, "_application_id": application.id}
 
 
 @router.post("/update-status")
@@ -89,33 +100,41 @@ async def biz_update_status(
 @router.get("/adgroups")
 async def biz_adgroups(
     platform: Optional[str] = Query(None, description="平台过滤: tiktok / meta"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     """返回 BIZ 库中所有 adgroup（含 status / account_id）"""
     if platform:
         rows = await asyncio.to_thread(biz_adgroup_repository.list_by_platform, platform)
     else:
         rows = await asyncio.to_thread(biz_adgroup_repository.list_all)
+    rows = filter_rows_by_account_whitelist(
+        rows, get_application_account_whitelist(application)
+    )
     for row in rows:
         for k in ("created_at", "updated_at"):
             if k in row and row[k] is not None:
                 row[k] = str(row[k])
-    return {"code": 0, "message": "ok", "data": rows}
+    return {"code": 0, "message": "ok", "data": rows, "_application_id": application.id}
 
 
 @router.get("/ads")
 async def biz_ads(
     platform: Optional[str] = Query(None, description="平台过滤: tiktok / meta"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     """返回 BIZ 库中所有 ad（含 status / account_id）"""
     if platform:
         rows = await asyncio.to_thread(biz_ad_repository.list_by_platform, platform)
     else:
         rows = await asyncio.to_thread(biz_ad_repository.list_all)
+    rows = filter_rows_by_account_whitelist(
+        rows, get_application_account_whitelist(application)
+    )
     for row in rows:
         for k in ("created_at", "updated_at"):
             if k in row and row[k] is not None:
                 row[k] = str(row[k])
-    return {"code": 0, "message": "ok", "data": rows}
+    return {"code": 0, "message": "ok", "data": rows, "_application_id": application.id}
 
 
 @router.get("/overview")
@@ -125,9 +144,21 @@ async def biz_overview(
     platform: Optional[str] = Query(None, description="平台过滤: tiktok / meta"),
     account_id: Optional[str] = Query(None, description="账户 ID 过滤"),
     source: str = Query("auto", description="数据源: auto/attribution/legacy"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     _check_dates(start_date, end_date)
     src = _resolve_source(source)
+
+    # 阶段 4 X3-filter Round 2：应用级账号白名单守门
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {
+            "code": 0,
+            "message": "ok",
+            "data": {"_source": src, "_hint": flt.hint, "_application_id": application.id},
+        }
+    account_id = flt.account_id
+
     if src == "attribution":
         data = await asyncio.to_thread(
             biz_attribution_service.get_overview,
@@ -152,6 +183,7 @@ async def biz_overview(
         elif hasattr(v, "__int__") and not isinstance(v, bool):
             data[k] = int(v)
     data["_source"] = src
+    data["_application_id"] = application.id
     return {"code": 0, "message": "ok", "data": data}
 
 
@@ -167,9 +199,20 @@ async def biz_campaign_daily(
     order_by: str = Query("stat_date"),
     order_dir: str = Query("desc"),
     source: str = Query("auto", description="数据源: auto/attribution/legacy"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     _check_dates(start_date, end_date)
     src = _resolve_source(source)
+
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {
+            "code": 0, "message": "ok",
+            "data": {"list": [], "total": 0, "page": page, "page_size": page_size,
+                     "_source": src, "_hint": flt.hint, "_application_id": application.id},
+        }
+    account_id = flt.account_id
+
     if src == "attribution":
         data = await asyncio.to_thread(
             biz_attribution_service.get_campaign_daily_list,
@@ -214,9 +257,17 @@ async def biz_top_campaigns(
     metric: str = Query("spend", description="排序指标: spend/revenue/clicks/installs/conversions/roas"),
     limit: int = Query(20, ge=1, le=100),
     source: str = Query("auto", description="数据源: auto/attribution/legacy"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     _check_dates(start_date, end_date)
     src = _resolve_source(source)
+
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {"code": 0, "message": "ok", "data": [],
+                "_source": src, "_hint": flt.hint, "_application_id": application.id}
+    account_id = flt.account_id
+
     if src == "attribution":
         rows = await asyncio.to_thread(
             biz_attribution_service.get_top_campaigns,
@@ -254,10 +305,22 @@ async def biz_campaign_aggregated(
     order_by: str = Query("total_spend"),
     order_dir: str = Query("desc"),
     source: str = Query("auto", description="数据源: auto/attribution/legacy"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     """Campaign 聚合数据 — 按 campaign_id 分组，时间段内汇总"""
     _check_dates(start_date, end_date)
     src = _resolve_source(source)
+
+    # 阶段 4 X3-filter Round 2：应用级账号白名单守门
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {
+            "code": 0, "message": "ok",
+            "data": [], "_source": src, "_hint": flt.hint,
+            "_application_id": application.id,
+        }
+    account_id = flt.account_id
+
     if src == "attribution":
         rows = await asyncio.to_thread(
             biz_attribution_service.get_campaign_aggregated,
@@ -382,8 +445,19 @@ async def biz_adgroup_daily(
     page_size: int = Query(20, ge=1, le=200),
     order_by: str = Query("stat_date"),
     order_dir: str = Query("desc"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     _check_dates(start_date, end_date)
+
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {
+            "code": 0, "message": "ok",
+            "data": {"list": [], "total": 0, "page": page, "page_size": page_size,
+                     "_hint": flt.hint, "_application_id": application.id},
+        }
+    account_id = flt.account_id
+
     data = await asyncio.to_thread(
         biz_adgroup_daily_repository.get_daily_list,
         start_date, end_date,
@@ -410,8 +484,19 @@ async def biz_ad_daily_list(
     page_size: int = Query(20, ge=1, le=200),
     order_by: str = Query("stat_date"),
     order_dir: str = Query("desc"),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     _check_dates(start_date, end_date)
+
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {
+            "code": 0, "message": "ok",
+            "data": {"list": [], "total": 0, "page": page, "page_size": page_size,
+                     "_hint": flt.hint, "_application_id": application.id},
+        }
+    account_id = flt.account_id
+
     data = await asyncio.to_thread(
         biz_ad_daily_repository.get_daily_list,
         start_date, end_date,

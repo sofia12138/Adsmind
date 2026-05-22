@@ -175,7 +175,7 @@ def sum_spend_by_stat_date(start_date: str, end_date: str) -> dict[str, float]:
     """按 stat_date 聚合 SUM(spend)，返回 {YYYY-MM-DD: spend_usd}（全平台合计）。
 
     数据来源是 biz_campaign_daily_normalized，与 Meta / TikTok 平台后台报表 1:1 同源。
-    用途：运营面板 ad_spend 的主源 — 跟 AdPilot Meta 操作台对齐口径。
+    用途：运营面板 ad_spend 的主源 — 跟 AdsMind Meta 操作台对齐口径。
     stat_date 沿用平台报表的日期（一般是账户时区），不再做 LA 日折算。
     """
     out: dict[str, float] = {}
