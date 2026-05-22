@@ -19,6 +19,17 @@ def get_by_username(username: str) -> Optional[dict]:
     return row
 
 
+def get_by_id(user_id: int) -> Optional[dict]:
+    with get_app_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM app_users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
+    if row and row.get("assigned_accounts"):
+        if isinstance(row["assigned_accounts"], str):
+            row["assigned_accounts"] = json.loads(row["assigned_accounts"])
+    return row
+
+
 def list_all() -> list[dict]:
     with get_app_conn() as conn:
         cur = conn.cursor()
@@ -63,6 +74,23 @@ def update(username: str, **fields) -> Optional[dict]:
         )
         conn.commit()
     return get_by_username(username)
+
+
+def mark_email_verified(user_id: int) -> bool:
+    """阶段 7 #3：把 app_users.email_verified_at 置为 NOW()。"""
+    with get_app_conn() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """UPDATE app_users
+                   SET email_verified_at = NOW()
+                   WHERE id = %s AND email_verified_at IS NULL""",
+                (user_id,),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        except Exception:
+            return False  # 列未就绪时降级
 
 
 def delete(username: str) -> bool:

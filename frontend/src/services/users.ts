@@ -1,10 +1,12 @@
 import { apiFetch } from './api'
 
 export interface UserInfo {
+  id?: number
   username: string
   role: string
   display_name: string
   assigned_accounts: string[]
+  email?: string
 }
 
 export interface CreateUserBody {
