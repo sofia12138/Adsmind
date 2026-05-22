@@ -19,3 +19,7 @@ alibabacloud-tea-util>=0.3.0
 # 阶段 2：AES-256-GCM 加密（python-jose 自带的 cryptography 通常会拉进来，
 # 这里显式声明版本，确保 AESGCM API 可用）
 cryptography>=42.0.0
+# multipart form 解析（routes/meta_assets.py / tiktok_materials.py 上传素材必需）
+python-multipart>=0.0.9
+# aiofiles 已通过 fastapi/starlette 间接拉入；显式声明保证大文件流式上传
+aiofiles>=23.0.0
