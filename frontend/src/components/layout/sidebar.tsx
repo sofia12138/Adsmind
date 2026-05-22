@@ -1,19 +1,29 @@
 import { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronRight, LogOut } from 'lucide-react'
+import { ChevronRight, LogOut, Eye, EyeOff } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { menuConfig } from '@/app/menu-config'
 import type { MenuItem } from '@/types/menu'
 import { useAuth } from '@/contexts/AuthContext'
+import { ApplicationSelector } from './ApplicationSelector'
 
-function filterMenu(items: MenuItem[], hasPanel: (key: string) => boolean): MenuItem[] {
+function filterMenu(
+  items: MenuItem[],
+  hasPanel: (key: string) => boolean,
+  hasPlugin: (key: string) => boolean,
+): MenuItem[] {
   return items.reduce<MenuItem[]>((acc, item) => {
     if (item.children) {
-      const filtered = filterMenu(item.children, hasPanel)
+      const filtered = filterMenu(item.children, hasPanel, hasPlugin)
       if (filtered.length > 0) {
         acc.push({ ...item, children: filtered })
       }
-    } else if (item.panelKey) {
+      return acc
+    }
+    // 阶段 3：菜单同时受 panelKey（角色权限）与 pluginKey（租户插件开关）控制。
+    // 两者都通过才显示；未设置的字段视为通过。
+    if (item.pluginKey && !hasPlugin(item.pluginKey)) return acc
+    if (item.panelKey) {
       if (hasPanel(item.panelKey)) acc.push(item)
     } else {
       acc.push(item)
@@ -79,9 +89,9 @@ function SidebarItem({ item, depth = 0 }: { item: MenuItem; depth?: number }) {
 
 export function Sidebar() {
   const navigate = useNavigate()
-  const { hasPanel, logout, username } = useAuth()
+  const { hasPanel, hasPlugin, logout, username, isPreviewMode, togglePreviewMode } = useAuth()
 
-  const visibleMenu = filterMenu(menuConfig, hasPanel)
+  const visibleMenu = filterMenu(menuConfig, hasPanel, hasPlugin)
 
   function handleLogout() {
     logout()
@@ -96,16 +106,37 @@ export function Sidebar() {
         <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-lg shadow-blue-500/20">
           A
         </div>
-        <span className="text-white font-semibold text-base tracking-tight">AdPilot</span>
+        <span className="text-white font-semibold text-base tracking-tight">AdsMind</span>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-2 space-y-0.5">
+      {/* 阶段 4 X1：当前应用切换器 */}
+      <ApplicationSelector />
+
+      <nav className="flex-1 overflow-y-auto py-2 mt-2 space-y-0.5">
         {visibleMenu.map(item => (
           <SidebarItem key={item.id} item={item} />
         ))}
       </nav>
 
-      <div className="border-t border-white/5 px-4 py-3">
+      <div className="border-t border-white/5 px-4 py-3 space-y-2">
+        {/* 阶段 3 批次 1 demo：视图切换（内部 ↔ 通用版试用） */}
+        <button
+          onClick={togglePreviewMode}
+          className={cn(
+            'w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-[11px] transition',
+            isPreviewMode
+              ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+              : 'text-slate-500 hover:bg-slate-700/50 hover:text-slate-300',
+          )}
+          title="切换内部 / 通用版试用视图（仅前端 demo，不影响数据隔离）"
+        >
+          <span className="flex items-center gap-1.5">
+            {isPreviewMode ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+            <span>{isPreviewMode ? '通用版试用中' : '内部视图'}</span>
+          </span>
+          <span className="opacity-60">切换</span>
+        </button>
+
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center text-white text-xs font-medium shrink-0">

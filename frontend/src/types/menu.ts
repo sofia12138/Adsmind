@@ -7,6 +7,12 @@ export interface MenuItem {
   path?: string
   children?: MenuItem[]
   panelKey?: string
+  /**
+   * 阶段 3：业务插件 key。
+   * 若提供，则该菜单项还要求当前租户启用该插件（AuthContext.hasPlugin）。
+   * 与 panelKey 是 AND 关系：两者都通过才显示。
+   */
+  pluginKey?: string
 }
 
 export const ROLE_LABELS: Record<string, string> = {
