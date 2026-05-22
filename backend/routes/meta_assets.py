@@ -22,12 +22,12 @@ _ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
 
 def _get_token_for_account(ad_account_id: str) -> str:
-    """根据 ad_account_id 从数据库获取 access_token"""
-    row = biz_account_repository.get_by_platform_account("meta", ad_account_id)
-    if row and row.get("access_token"):
-        return row["access_token"]
-    from config import get_settings
-    return get_settings().meta_access_token
+    """根据 ad_account_id 获取 access_token（阶段 2：走统一凭证服务）。
+
+    优先级：加密表 → 旧明文兼容 → .env 默认值。
+    """
+    from services.credential_service import resolve_access_token
+    return resolve_access_token("meta", account_id=ad_account_id) or ""
 
 
 # ── 主页列表 ──────────────────────────────────────────────

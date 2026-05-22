@@ -25,12 +25,42 @@ class TikTokApiError(Exception):
 
 
 class TikTokClient:
-    def __init__(self, access_token: str | None = None):
+    def __init__(
+        self,
+        access_token: str | None = None,
+        *,
+        account_id: str | None = None,
+        tenant_id: int | None = None,
+    ):
+        """构造 TikTok API 客户端。
+
+        access_token 解析顺序（向后兼容）：
+          1. 调用方显式传入的 `access_token`
+          2. `services.credential_service.resolve_access_token()`：
+             - 加密表 `app_oauth_credentials`
+             - 旧明文 `biz_ad_accounts.access_token`
+             - `.env` 默认 `TIKTOK_ACCESS_TOKEN`
+
+        阶段 2 起推荐传 `account_id`（+ 可选 `tenant_id`），让 client 自动从
+        加密表取 token；旧调用点不传 `access_token` 时也会走新路径，
+        所以最终 token 来源会自动升级。
+        """
         settings = get_settings()
         self.base_url = settings.tiktok_api_base_url
-        self.access_token = access_token or settings.tiktok_access_token
+
+        token = access_token
+        token_source = "explicit" if token else "none"
+        if not token:
+            from services.credential_service import resolve_token_source
+            token, token_source = resolve_token_source(
+                "tiktok", account_id=account_id, tenant_id=tenant_id,
+            )
+        self.access_token = token or ""
         self._client = httpx.AsyncClient(timeout=30.0)
-        logger.info(f"[tiktok-client] TikTokClient 初始化: base_url={self.base_url}")
+        logger.info(
+            f"[tiktok-client] init base_url={self.base_url} "
+            f"account_id={account_id or '-'} token_source={token_source}"
+        )
 
     @property
     def _headers(self) -> dict:

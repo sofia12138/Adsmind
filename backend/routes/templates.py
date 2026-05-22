@@ -812,15 +812,16 @@ async def _launch_meta(tpl: dict, payload: dict) -> dict:
         },
     }
 
-    # 获取账户专属 token
+    # 获取账户专属 token（阶段 2：通过统一凭证服务，自动走加密表 → 兼容明文 → .env）
+    from services.credential_service import resolve_token_source
+    _acct_token, _acct_token_src = resolve_token_source("meta", account_id=ad_account_id)
     _acct_row = biz_account_repository.get_by_platform_account("meta", ad_account_id)
-    _acct_token = (_acct_row or {}).get("access_token", "")
-    _client = MetaClient(access_token=_acct_token) if _acct_token else MetaClient()
+    _client = MetaClient(access_token=_acct_token, account_id=ad_account_id) if _acct_token else MetaClient()
     # 账户时区：当 meta_schedule.timezone 未指定时，作为时间字符串展示参考；
     # Meta API 接受 ISO 8601（如 2026-04-25T10:00:00-0700），前端必须把时间转成带偏移的 ISO 后下发，
     # 后端这里只做透传 + 日志，不做时区算术，避免歧义。
     _account_tz = (_acct_row or {}).get("timezone") or "UTC"
-    logger.info(f"[launch-meta] token={'专属' if _acct_token else '全局默认'}  account={ad_account_id}  "
+    logger.info(f"[launch-meta] token={_acct_token_src}  account={ad_account_id}  "
                 f"budget_mode={budget_mode}  materials={len(materials)}  adsets={len(adsets_input)}  "
                 f"schedule_start={schedule_start_time or '-'}  schedule_end={schedule_end_time or '-'}  "
                 f"tz_input={schedule_timezone or '-'}  tz_account={_account_tz}")
@@ -1585,11 +1586,11 @@ async def _launch_tiktok_web_to_app(tpl: dict, payload: dict) -> dict:
     if not advertiser_id:
         return {"error": "缺少 advertiser_id（TikTok 广告账户必填）"}
 
-    # ── 为该 advertiser 找 access_token ──
-    acc_row = biz_account_repository.get_by_platform_account("tiktok", advertiser_id)
-    if not acc_row or not acc_row.get("access_token"):
-        return {"error": f"未找到 advertiser_id={advertiser_id} 对应的 TikTok access_token，请在「账号管理」先配置"}
-    access_token = acc_row["access_token"]
+    # ── 为该 advertiser 找 access_token（阶段 2：走统一凭证服务） ──
+    from services.credential_service import resolve_access_token
+    access_token = resolve_access_token("tiktok", account_id=advertiser_id)
+    if not access_token:
+        return {"error": f"未找到 advertiser_id={advertiser_id} 对应的 TikTok access_token，请先完成 OAuth 授权"}
 
     campaign_name = (overrides.get("campaign_name") or payload.get("campaign_name") or "").strip()
     if not campaign_name:
@@ -2016,10 +2017,11 @@ async def probe_tiktok_w2a_source(
       defaults:  抽取后的模板默认值（可直接贴回 tpl_tiktok_web_to_app_system.defaults）
       raw:       campaign/adgroup/ad 原始返回（已过滤运行态），便于人工核对
     """
-    acc_row = biz_account_repository.get_by_platform_account("tiktok", advertiser_id)
-    if not acc_row or not acc_row.get("access_token"):
+    from services.credential_service import resolve_access_token
+    _token = resolve_access_token("tiktok", account_id=advertiser_id)
+    if not _token:
         return {"error": f"未找到 advertiser_id={advertiser_id} 对应的 TikTok access_token"}
-    client = TikTokClient(access_token=acc_row["access_token"])
+    client = TikTokClient(access_token=_token, account_id=advertiser_id)
 
     try:
         campaign_resp = await client.get("campaign/get/", {

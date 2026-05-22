@@ -37,10 +37,40 @@ class MetaApiError(Exception):
 
 
 class MetaClient:
-    def __init__(self, access_token: str | None = None):
+    def __init__(
+        self,
+        access_token: str | None = None,
+        *,
+        account_id: str | None = None,
+        tenant_id: int | None = None,
+    ):
+        """构造 Meta Graph API 客户端。
+
+        access_token 解析顺序（向后兼容）：
+          1. 调用方显式传入的 `access_token`
+          2. `services.credential_service.resolve_access_token()`：
+             - 加密表 `app_oauth_credentials`
+             - 旧明文 `biz_ad_accounts.access_token`
+             - `.env` 默认 `META_ACCESS_TOKEN`
+
+        阶段 2 起推荐传 `account_id`（+ 可选 `tenant_id`）。
+        """
         settings = get_settings()
         self.base_url = settings.meta_api_base_url
-        self.access_token = access_token or settings.meta_access_token
+
+        token = access_token
+        token_source = "explicit" if token else "none"
+        if not token:
+            from services.credential_service import resolve_token_source
+            token, token_source = resolve_token_source(
+                "meta", account_id=account_id, tenant_id=tenant_id,
+            )
+        self.access_token = token or ""
+        if not access_token:
+            # 仅在没显式传 token 时打印来源（避免日志噪声）
+            logger.info(
+                f"[meta-client] init account_id={account_id or '-'} token_source={token_source}"
+            )
 
     @property
     def _client(self) -> httpx.AsyncClient:

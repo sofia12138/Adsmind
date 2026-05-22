@@ -271,7 +271,9 @@ async def sync_tiktok_campaigns(advertiser_id: str,
     from tiktok_ads.api.campaign import CampaignService
     from tiktok_ads.api.client import TikTokClient
 
-    client = TikTokClient(access_token=access_token) if access_token else TikTokClient()
+    # 阶段 2：未显式传 access_token 时由 client 内部走加密凭证服务
+    client = (TikTokClient(access_token=access_token, account_id=advertiser_id)
+              if access_token else TikTokClient(account_id=advertiser_id))
     svc = CampaignService(advertiser_id, client=client)
 
     # 1) Campaign 列表
@@ -755,7 +757,9 @@ async def sync_meta_campaigns(ad_account_id: str,
     from meta_ads.api.campaigns import MetaCampaignService
     from meta_ads.api.client import MetaClient
 
-    client = MetaClient(access_token=access_token) if access_token else MetaClient()
+    # 阶段 2：未显式传 access_token 时由 client 内部走加密凭证服务
+    client = (MetaClient(access_token=access_token, account_id=ad_account_id)
+              if access_token else MetaClient(account_id=ad_account_id))
     svc = MetaCampaignService(ad_account_id, client=client)
 
     # 1) Campaign 列表
@@ -958,7 +962,10 @@ async def run(platform: str | None = None,
             if platform and p != platform:
                 continue
             aid = acct["account_id"]
-            token = acct.get("access_token")
+            # 阶段 2：先走加密凭证服务（加密表 → 旧明文兼容 → .env 兜底）
+            # 仍保留 acct["access_token"] 兼容，但 resolve_access_token 内部已经会回退到这一层。
+            from services.credential_service import resolve_access_token as _resolve
+            token = _resolve(p, account_id=aid) or acct.get("access_token")
 
             # 首次同步（last_synced_at 为 NULL）自动回填近 N 天
             acct_start = start_date
@@ -1005,7 +1012,7 @@ async def run(platform: str | None = None,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AdPilot 全量数据同步")
+    parser = argparse.ArgumentParser(description="AdsMind 全量数据同步")
     parser.add_argument("--platform", choices=["tiktok", "meta"], default=None)
     parser.add_argument("--start", default=None, help="开始日期 YYYY-MM-DD")
     parser.add_argument("--end", default=None, help="结束日期 YYYY-MM-DD")

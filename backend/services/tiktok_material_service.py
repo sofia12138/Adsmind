@@ -23,11 +23,9 @@ def get_tiktok_progress(record_id: int) -> dict | None:
 
 
 def _get_token_for_advertiser(advertiser_id: str) -> str:
-    """从 biz_ad_accounts 取 token，兜底用全局配置"""
-    row = biz_account_repository.get_by_platform_account("tiktok", advertiser_id)
-    if row and row.get("access_token"):
-        return row["access_token"]
-    return get_settings().tiktok_access_token
+    """阶段 2：通过统一凭证服务取 token（加密表 → 旧明文 → .env 兑底）。"""
+    from services.credential_service import resolve_access_token
+    return resolve_access_token("tiktok", account_id=advertiser_id) or ""
 
 
 def _determine_upload_channel(duration_sec: float | None) -> str:
@@ -78,7 +76,7 @@ async def upload_video(
     )
 
     token = _get_token_for_advertiser(advertiser_id)
-    client = TikTokClient(access_token=token)
+    client = TikTokClient(access_token=token, account_id=advertiser_id)
     svc = CreativeService(client=client, advertiser_id=advertiser_id)
 
     def _on_progress(sent: int, total: int) -> None:

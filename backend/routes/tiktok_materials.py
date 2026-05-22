@@ -134,13 +134,15 @@ async def list_account_library_videos(
     from tiktok_ads.api.client import TikTokClient
     from tiktok_ads.api.creative import CreativeService
 
-    acc_row = biz_account_repository.get_by_platform_account("tiktok", advertiser_id)
-    if not acc_row or not acc_row.get("access_token"):
+    # 阶段 2：统一从加密凭证服务读 token
+    from services.credential_service import resolve_access_token
+    _token = resolve_access_token("tiktok", account_id=advertiser_id)
+    if not _token:
         return JSONResponse(status_code=400, content={
-            "error": f"未找到 advertiser_id={advertiser_id} 对应的 TikTok access_token",
+            "error": f"未找到 advertiser_id={advertiser_id} 对应的 TikTok access_token，请先完成 OAuth 授权",
         })
 
-    client = TikTokClient(access_token=acc_row["access_token"])
+    client = TikTokClient(access_token=_token, account_id=advertiser_id)
     svc = CreativeService(client=client, advertiser_id=advertiser_id)
 
     try:

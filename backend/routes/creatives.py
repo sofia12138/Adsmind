@@ -147,8 +147,11 @@ async def list_pixels(
     if not advertiser_id:
         return {"data": {"pixel_list": [], "errors": [{"error": "advertiser_id 不能为空"}]}}
 
+    # 阶段 2：从统一凭证服务取 token（加密表 → 兼容路径），不再直接读 biz 明文
+    from services.credential_service import resolve_access_token
+    _token = resolve_access_token("tiktok", account_id=advertiser_id)
     acc_row = biz_account_repository.get_by_platform_account("tiktok", advertiser_id)
-    if not acc_row or not acc_row.get("access_token"):
+    if not _token:
         return {
             "data": {
                 "pixel_list": [],
@@ -156,7 +159,7 @@ async def list_pixels(
             }
         }
 
-    client = TikTokClient(access_token=acc_row["access_token"])
+    client = TikTokClient(access_token=_token, account_id=advertiser_id)
     errors: list[dict] = []
     pixels: list[dict] = []
 
