@@ -133,7 +133,15 @@ class Settings(BaseSettings):
     # 单 IP 重发验证邮件 / 创建邀请：每小时上限
     rate_limit_email_per_hour: int = 30
 
-    model_config = {"env_file": "../.env", "env_file_encoding": "utf-8"}
+    # 运行环境标识：production / staging / development（生产硬检查 ENCRYPTION_KEY_B64 / JWT_SECRET_KEY）
+    app_env: str = ""
+
+    # 允许 .env 出现未在 Settings 显式声明的字段（容忍未来扩展，避免启动崩溃）
+    model_config = {
+        "env_file": "../.env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
 
 @lru_cache
