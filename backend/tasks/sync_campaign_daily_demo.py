@@ -30,7 +30,7 @@ MOCK_ACCOUNTS = [
     {
         "platform": "tiktok",
         "account_id": "7602627489392394248",
-        "account_name": "AdPilot Demo TikTok",
+        "account_name": "AdsMind Demo TikTok",
         "currency": "USD",
         "timezone": "America/Los_Angeles",
         "status": "ACTIVE",
@@ -39,7 +39,7 @@ MOCK_ACCOUNTS = [
     {
         "platform": "meta",
         "account_id": "act_1859812594690702",
-        "account_name": "AdPilot Demo Meta",
+        "account_name": "AdsMind Demo Meta",
         "currency": "USD",
         "timezone": "America/New_York",
         "status": "ACTIVE",
