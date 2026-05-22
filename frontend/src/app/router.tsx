@@ -3,7 +3,12 @@ import { MainLayout } from '@/components/layout/main-layout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 
 import LoginPage from '@/pages/LoginPage'
+import RegisterPage from '@/pages/RegisterPage'
+import InvitationAcceptPage from '@/pages/InvitationAcceptPage'
 import ForbiddenPage from '@/pages/ForbiddenPage'
+import TeamPage from '@/pages/TeamPage'
+import UpgradeRequestsPage from '@/pages/UpgradeRequestsPage'
+import VerifyEmailPage from '@/pages/VerifyEmailPage'
 import DashboardPage from '@/pages/DashboardPage'
 import OpsDashboard from '@/pages/ops/OpsDashboard'
 import AdsPage from '@/pages/AdsPage'
@@ -31,6 +36,9 @@ import AssetLandingPagesPage from '@/pages/AssetLandingPagesPage'
 import AssetCopyPacksPage from '@/pages/AssetCopyPacksPage'
 import AssetRegionGroupsPage from '@/pages/AssetRegionGroupsPage'
 import TikTokMaterialsPage from '@/pages/TikTokMaterialsPage'
+import ApplicationsListPage from '@/pages/ApplicationsListPage'
+import ApplicationDetailPage from '@/pages/ApplicationDetailPage'
+import IntegrationsPage from '@/pages/IntegrationsPage'
 
 function G({ panelKey, children }: { panelKey: string; children: React.ReactNode }) {
   return <AuthGuard panelKey={panelKey}>{children}</AuthGuard>
@@ -44,6 +52,9 @@ function RedirectKeepQuery({ to }: { to: string }) {
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  { path: '/register', element: <RegisterPage /> },
+  { path: '/invitation/:token', element: <InvitationAcceptPage /> },
+  { path: '/verify-email/:token', element: <VerifyEmailPage /> },
   {
     path: '/',
     element: <MainLayout />,
@@ -79,6 +90,11 @@ export const router = createBrowserRouter([
       { path: 'assets/copy-packs',    element: <G panelKey="asset_copy_packs"><AssetCopyPacksPage /></G> },
       { path: 'assets/region-groups', element: <G panelKey="asset_region_groups"><AssetRegionGroupsPage /></G> },
       { path: 'tiktok-materials',     element: <G panelKey="tiktok_materials"><TikTokMaterialsPage /></G> },
+      { path: 'applications',           element: <G panelKey="applications"><ApplicationsListPage /></G> },
+      { path: 'applications/:id',       element: <G panelKey="applications"><ApplicationDetailPage /></G> },
+      { path: 'settings/integrations',  element: <G panelKey="applications"><IntegrationsPage /></G> },
+      { path: 'team',                   element: <G panelKey="team"><TeamPage /></G> },
+      { path: 'upgrade-requests',       element: <G panelKey="user_mgmt"><UpgradeRequestsPage /></G> },
     ],
   },
 ])

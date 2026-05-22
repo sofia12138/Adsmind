@@ -23,10 +23,12 @@ import {
   Film,
   UserCheck,
   BookUser,
+  Crown,
   Package,
   Link2,
   Globe,
   Upload,
+  Layers,
 } from 'lucide-react'
 import type { MenuItem } from '@/types/menu'
 
@@ -53,7 +55,7 @@ export const menuConfig: MenuItem[] = [
     children: [
       { id: 'creatives', label: '素材库', icon: FolderOpen, path: '/creatives', panelKey: 'creatives' },
       { id: 'creative-analysis', label: '素材分析', icon: LineChart, path: '/creative-analysis', panelKey: 'creative_analysis' },
-      { id: 'designer-performance', label: '设计师人效', icon: UserCheck, path: '/designer-performance', panelKey: 'designer_performance' },
+      { id: 'designer-performance', label: '设计师人效', icon: UserCheck, path: '/designer-performance', panelKey: 'designer_performance', pluginKey: 'designer_performance' },
       { id: 'tiktok-materials', label: 'TikTok素材上传', icon: Upload, path: '/tiktok-materials', panelKey: 'tiktok_materials' },
     ],
   },
@@ -66,8 +68,8 @@ export const menuConfig: MenuItem[] = [
       { id: 'channel-analysis', label: '渠道分析', icon: GitCompare, path: '/channel-analysis', panelKey: 'channel_analysis' },
       { id: 'biz-analysis', label: '业务分析', icon: TrendingUp, path: '/biz-analysis', panelKey: 'biz_analysis' },
       { id: 'returned-conversion', label: '广告回传分析', icon: Redo2, path: '/returned-conversion', panelKey: 'returned_conversion' },
-      { id: 'drama-analysis', label: '剧级分析', icon: Film, path: '/drama-analysis', panelKey: 'drama_analysis' },
-      { id: 'optimizer-performance', label: '优化师人效', icon: UserCheck, path: '/optimizer-performance', panelKey: 'optimizer_performance' },
+      { id: 'drama-analysis', label: '剧级分析', icon: Film, path: '/drama-analysis', panelKey: 'drama_analysis', pluginKey: 'drama' },
+      { id: 'optimizer-performance', label: '优化师人效', icon: UserCheck, path: '/optimizer-performance', panelKey: 'optimizer_performance', pluginKey: 'optimizer' },
     ],
   },
   {
@@ -93,12 +95,16 @@ export const menuConfig: MenuItem[] = [
     label: '系统管理',
     icon: Settings,
     children: [
+      { id: 'applications', label: '应用管理', icon: Layers, path: '/applications', panelKey: 'applications' },
+      { id: 'integrations', label: '集成中心', icon: Link2, path: '/settings/integrations', panelKey: 'applications' },
+      { id: 'team', label: '团队成员', icon: Users, path: '/team', panelKey: 'team' },
       { id: 'data-source', label: '数据源配置', icon: Database, path: '/data-source', panelKey: 'data_source' },
       { id: 'user-mgmt', label: '用户权限', icon: Users, path: '/user-mgmt', panelKey: 'user_mgmt' },
+      { id: 'upgrade-requests', label: '套餐升级审批', icon: Crown, path: '/upgrade-requests', panelKey: 'user_mgmt' },
       { id: 'role-perm', label: '角色权限管理', icon: Shield, path: '/role-perm', panelKey: 'role_perm' },
       { id: 'insight-config', label: 'ROI 阈值配置', icon: SlidersHorizontal, path: '/insight-config', panelKey: 'insight_config' },
       { id: 'oplog', label: '操作日志', icon: ClipboardList, path: '/oplog', panelKey: 'oplog' },
-      { id: 'optimizer-directory', label: '优化师名单配置', icon: BookUser, path: '/optimizer-directory', panelKey: 'optimizer_directory' },
+      { id: 'optimizer-directory', label: '优化师名单配置', icon: BookUser, path: '/optimizer-directory', panelKey: 'optimizer_directory', pluginKey: 'optimizer' },
     ],
   },
 ]

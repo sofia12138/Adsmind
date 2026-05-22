@@ -145,7 +145,7 @@ def query_daily_ops(start_date: str, end_date: str, *, source: str = "auto") -> 
 
     # ad_spend 数据源切换说明：
     #   主源：biz_campaign_daily_normalized — 直接来自 Meta/TikTok 平台 API，
-    #         跟 AdPilot Meta 操作台 / 平台后台账单 1:1 同源（口径最准）。
+    #         跟 AdsMind Meta 操作台 / 平台后台账单 1:1 同源（口径最准）。
     #   fallback：biz_attribution_ad_intraday — 仅在主源对某天没有任何分区时兜底，
     #         避免主源同步任务中断导致面板完全空白。
     # 不再使用 biz_ops_daily.ad_spend_usd（其上游 biz_attribution_ad_daily 是归因

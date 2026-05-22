@@ -7,14 +7,17 @@ import { SectionCard } from '@/components/common/SectionCard'
 import { LinkCard } from '@/components/common/LinkCard'
 import { FilterBar } from '@/components/common/FilterBar'
 import { DateRangeFilter, getDefaultDateRange, type DateRange } from '@/components/common/DateRangeFilter'
+import { OnboardingChecklist } from '@/components/common/OnboardingChecklist'
 import { useBizOverview, useBizTopCampaigns, useCampaignDaily } from '@/hooks/use-biz'
 import { SpendRevenueTrendChart } from '@/components/charts/SpendRevenueTrendChart'
 import { useInsightConfig } from '@/hooks/use-insight'
+import { useAuth } from '@/contexts/AuthContext'
 
 const fmtUsd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export default function DashboardPage() {
   const [dateRange, setDateRange] = useState<DateRange>(() => getDefaultDateRange('all'))
+  const { currentApplication } = useAuth()
 
   const { data: overview, isLoading: ovLoading, isError: ovError } = useBizOverview(dateRange)
   const { data: topCampaigns } = useBizTopCampaigns({ ...dateRange, limit: 50 })
@@ -32,6 +35,9 @@ export default function DashboardPage() {
 
   const isLoading = ovLoading
   const hasData = overview && overview.total_spend > 0
+  // 阶段 4 Onboarding：后端返回 _hint 表示当前应用未绑账号 / 多账号未指定；
+  // 此时优先展示 3 步引导卡片，引导客户完成接入。
+  const showOnboarding = !isLoading && !ovError && !!overview?._hint
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -56,7 +62,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {!isLoading && !ovError && (
+      {showOnboarding && (
+        <OnboardingChecklist
+          applicationId={currentApplication?.id}
+          applicationName={currentApplication?.name}
+          hint={overview?._hint}
+        />
+      )}
+
+      {!isLoading && !ovError && !showOnboarding && (
         <>
           {/* ===== 指标区 ===== */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">

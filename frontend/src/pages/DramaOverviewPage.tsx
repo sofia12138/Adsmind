@@ -25,6 +25,7 @@ import {
   UserPlus,
   Star,
   Languages,
+  User,
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/common/PageHeader'
@@ -41,6 +42,9 @@ import {
   type DramaSummaryRow,
   type LocaleBreakdownRow,
 } from '@/services/drama'
+import { fetchDirectoryList } from '@/services/optimizer-directory'
+
+const UNKNOWN_OPTIMIZER = '未识别'
 
 // ─────────────────────────────────────────────────────────────
 // 工具函数
@@ -84,18 +88,28 @@ function LocaleRows({
   contentKey,
   dateRange,
   colSpan,
+  optimizer,
 }: {
   contentKey: string
   dateRange: DateRange
   colSpan: number
+  /** 与主表保持同口径 — 不传则后端不过滤 */
+  optimizer?: string
 }) {
   const { data, isLoading } = useQuery({
-    queryKey: ['drama-locale', contentKey, dateRange.startDate, dateRange.endDate],
+    queryKey: [
+      'drama-locale',
+      contentKey,
+      dateRange.startDate,
+      dateRange.endDate,
+      optimizer ?? '',
+    ],
     queryFn: () =>
       fetchLocaleBreakdown({
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
         contentKey,
+        optimizer: optimizer || undefined,
       }),
     staleTime: 60_000,
   })
@@ -172,6 +186,8 @@ export default function DramaOverviewPage() {
   const [platform, setPlatform] = useState('')
   const [country, _setCountry] = useState('')
   const [languageCode, setLanguageCode] = useState('')
+  // 优化师筛选 — 空字符串=全部；'未识别' 表示未匹配的 campaign
+  const [optimizer, setOptimizer] = useState('')
 
   // 展开状态（content_key set）
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -189,12 +205,20 @@ export default function DramaOverviewPage() {
     })
   }, [])
 
+  // ── 优化师下拉 ─────────────────────────────────────────────
+  // 直接拉全量目录（按方案：1.直接拉全量）。is_active=1 过滤掉已停用的优化师。
+  const { data: optimizerDirectory } = useQuery({
+    queryKey: ['optimizer-directory-active'],
+    queryFn: () => fetchDirectoryList({ is_active: 1 }),
+    staleTime: 5 * 60_000, // 目录变化频率低，缓存 5 分钟
+  })
+
   // ── 主查询 ─────────────────────────────────────────────────
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: [
       'drama-summary',
       dateRange.startDate, dateRange.endDate,
-      sourceType, platform, country, languageCode, keyword, page,
+      sourceType, platform, country, languageCode, keyword, optimizer, page,
     ],
     queryFn: () =>
       fetchDramaSummary({
@@ -205,6 +229,7 @@ export default function DramaOverviewPage() {
         country: country || undefined,
         languageCode: languageCode || undefined,
         keyword: keyword || undefined,
+        optimizer: optimizer || undefined,
         page,
         pageSize: PAGE_SIZE,
       }),
@@ -303,6 +328,29 @@ export default function DramaOverviewPage() {
           <option value="unknown">未知语言</option>
         </select>
 
+        {/* 优化师筛选 */}
+        <div className="flex items-center gap-1.5">
+          <User className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+          <select
+            value={optimizer}
+            onChange={e => { setOptimizer(e.target.value); setPage(1) }}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white outline-none text-gray-700 min-w-[140px]"
+            title="按优化师 normalized 名筛选"
+          >
+            <option value="">全部优化师</option>
+            {(optimizerDirectory ?? [])
+              .slice()
+              .sort((a, b) => a.optimizer_name.localeCompare(b.optimizer_name))
+              .map(item => (
+                <option key={item.id} value={item.optimizer_name}>
+                  {item.optimizer_name}
+                  {item.optimizer_code ? ` · ${item.optimizer_code}` : ''}
+                </option>
+              ))}
+            <option value={UNKNOWN_OPTIMIZER}>{UNKNOWN_OPTIMIZER}</option>
+          </select>
+        </div>
+
         {/* 手动同步按钮 */}
         <button
           onClick={() => syncMutation.mutate()}
@@ -316,9 +364,24 @@ export default function DramaOverviewPage() {
 
       {/* 同步结果提示 */}
       {syncMutation.isSuccess && (
-        <div className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg px-4 py-2">
-          同步完成：映射写入 {syncMutation.data.mapping_upserted} 条，事实表写入{' '}
-          {syncMutation.data.fact_upserted} 条，解析失败 {syncMutation.data.failed_count} 条
+        <div className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg px-4 py-2 space-y-1">
+          <div>
+            剧级同步完成：映射写入 {syncMutation.data.mapping_upserted} 条，事实表写入{' '}
+            {syncMutation.data.fact_upserted} 条，解析失败 {syncMutation.data.failed_count} 条
+          </div>
+          {syncMutation.data.optimizer_sync && (
+            syncMutation.data.optimizer_sync.error ? (
+              <div className="text-amber-700">
+                优化师同步失败：{syncMutation.data.optimizer_sync.error}
+              </div>
+            ) : (
+              <div className="text-emerald-600/80">
+                优化师同步：映射 {syncMutation.data.optimizer_sync.mapping_upserted ?? 0} 条 · 事实表{' '}
+                {syncMutation.data.optimizer_sync.fact_upserted ?? 0} 条 · 未识别{' '}
+                {syncMutation.data.optimizer_sync.failed_count ?? 0} 条
+              </div>
+            )
+          )}
         </div>
       )}
 
@@ -452,6 +515,7 @@ export default function DramaOverviewPage() {
                         contentKey={row.content_key}
                         dateRange={dateRange}
                         colSpan={COL_COUNT}
+                        optimizer={optimizer || undefined}
                       />
                     )}
                   </React.Fragment>

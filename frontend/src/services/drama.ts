@@ -61,6 +61,18 @@ export interface DramaSyncResult {
   mapping_upserted: number
   fact_upserted: number
   failed_count: number
+  /**
+   * 后端 /sync 顺手触发的 sync_optimizer 结果。
+   * 成功时是 { mapping_upserted, fact_upserted, failed_count, match_stats, position_stats }，
+   * 失败时是 { status: 'failed', error: string }。
+   */
+  optimizer_sync?: {
+    status?: string
+    error?: string
+    mapping_upserted?: number
+    fact_upserted?: number
+    failed_count?: number
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -74,6 +86,12 @@ export interface DramaBaseFilter {
   platform?: string
   channel?: string
   country?: string
+  /**
+   * 优化师 normalized 名（与 optimizer_directory.optimizer_name 一致）。
+   * 传 '未识别' 表示该 campaign 未匹配到任何已知优化师。
+   * 后端 legacy 数据源忽略此参数并在响应里返回 _warning。
+   */
+  optimizer?: string
 }
 
 export interface DramaSummaryFilter extends DramaBaseFilter {
@@ -126,6 +144,7 @@ export async function fetchDramaSummary(
     country: filter.country,
     keyword: filter.keyword,
     language_code: filter.languageCode,
+    optimizer: filter.optimizer,
     page: filter.page ?? 1,
     page_size: filter.pageSize ?? 50,
   })
@@ -147,6 +166,7 @@ export async function fetchLocaleBreakdown(
     platform: filter.platform,
     channel: filter.channel,
     country: filter.country,
+    optimizer: filter.optimizer,
   })
   return apiFetch(`/api/drama/locale-breakdown?${q}`)
 }
@@ -166,6 +186,7 @@ export async function fetchDramaTrend(
     platform: filter.platform,
     channel: filter.channel,
     country: filter.country,
+    optimizer: filter.optimizer,
   })
   return apiFetch(`/api/drama/trend?${q}`)
 }
