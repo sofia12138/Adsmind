@@ -23,9 +23,29 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password }),
       })
+      if (res.status === 502 || res.status === 503) {
+        try {
+          const err = await res.json()
+          if (err.error === 'database_unavailable' || err.message?.includes('数据库')) {
+            setError('数据库连接失败：请确认能访问远程 MySQL（47.238.108.255）或已启动 SSH 隧道')
+            return
+          }
+        } catch {
+          /* fall through */
+        }
+        setError('后端服务未启动或数据库不可用，请确认 backend 已在 8000 端口运行且 MySQL 可连接')
+        return
+      }
       const data = await res.json()
       if (!res.ok || data.ok === false) {
-        setError(data.detail ?? data.message ?? '登录失败')
+        const detail = data.detail
+        const msg =
+          typeof detail === 'string'
+            ? detail
+            : typeof detail === 'object' && detail?.message
+              ? detail.message
+              : data.message
+        setError(msg ?? '登录失败')
         return
       }
       const token = data.token ?? data.access_token ?? ''

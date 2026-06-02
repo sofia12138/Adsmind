@@ -344,7 +344,10 @@ async def lifespan(application: FastAPI):
         logger.warning(f"加密模块加载失败：{e}")
 
     from services.account_service import seed_from_env
-    seed_from_env()
+    try:
+        seed_from_env()
+    except Exception as e:
+        logger.warning(f"从 .env 种子化默认广告账户失败（不影响启动）：{e}")
 
     # 阶段 3 批次 1：插件 jobs/hooks 注册（本批次插件暂未声明 jobs，
     # 但接入接口便于批次 2 attribution_metis / ops_panel、批次 3 returned_conversion 复用）
