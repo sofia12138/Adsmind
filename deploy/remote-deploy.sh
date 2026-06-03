@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-SERVER="admin@47.238.108.255"
+SERVER="admin@47.237.67.41"
 DEPLOY_SCRIPT="/opt/adpilot/deploy/update.sh"
 
 echo "[1/2] 推送代码到 GitHub..."

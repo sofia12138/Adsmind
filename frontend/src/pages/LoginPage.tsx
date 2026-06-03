@@ -27,7 +27,7 @@ export default function LoginPage() {
         try {
           const err = await res.json()
           if (err.error === 'database_unavailable' || err.message?.includes('数据库')) {
-            setError('数据库连接失败：请确认能访问远程 MySQL（47.238.108.255）或已启动 SSH 隧道')
+            setError('数据库连接失败：请确认能访问远程 MySQL（47.237.67.41）或已启动 SSH 隧道')
             return
           }
         } catch {
