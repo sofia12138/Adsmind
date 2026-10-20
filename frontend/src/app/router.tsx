@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom'
+import { createBrowserRouter, createHashRouter, Navigate, useLocation } from 'react-router-dom'
 import { MainLayout } from '@/components/layout/main-layout'
 import { AuthGuard } from '@/components/auth/AuthGuard'
 
@@ -50,7 +50,11 @@ function RedirectKeepQuery({ to }: { to: string }) {
   return <Navigate to={`${to}${loc.search}`} replace />
 }
 
-export const router = createBrowserRouter([
+const createRouter = import.meta.env.MODE === 'demo' || import.meta.env.VITE_DEMO_MODE === 'true'
+  ? createHashRouter
+  : createBrowserRouter
+
+export const router = createRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
   { path: '/invitation/:token', element: <InvitationAcceptPage /> },
