@@ -849,6 +849,8 @@ _PANEL_SEED = [
     ("optimizer_directory",    "优化师名单配置",  "系统管理",   "/optimizer-directory",     65),
     # 阶段 4 X1：应用配置模块
     ("applications",           "应用管理",        "系统管理",   "/applications",            66),
+    ("account_groups",         "账户组",          "系统管理",   "/settings/account-groups",  68),
+    ("naming_rules",           "命名规则",        "系统管理",   "/settings/naming-rules",    69),
     # 阶段 7：团队邀请
     ("team",                   "团队成员",        "系统管理",   "/team",                    67),
     # 广告资产库
@@ -868,7 +870,7 @@ _ROLE_DEFAULT_PANELS: dict[str, list[str]] = {
                     "optimizer_directory", "designer_performance", "drama_analysis",
                     "returned_conversion", "oplog",
                     "asset_landing_pages", "asset_copy_packs", "asset_region_groups",
-                    "tiktok_materials"],
+                    "tiktok_materials", "account_groups", "naming_rules"],
     "designer":    ["dashboard", "creatives", "creative_analysis", "designer_performance"],
     "analyst":     ["dashboard", "overview", "channel_analysis", "biz_analysis", "data_compare",
                     "creative_analysis", "returned_conversion", "drama_analysis", "designer_performance",

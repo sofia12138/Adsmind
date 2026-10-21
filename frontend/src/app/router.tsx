@@ -44,6 +44,8 @@ import ApplicationsListPage from '@/pages/ApplicationsListPage'
 import ApplicationDetailPage from '@/pages/ApplicationDetailPage'
 import IntegrationsPage from '@/pages/IntegrationsPage'
 import PlatformAuthorizationPage from '@/pages/PlatformAuthorizationPage'
+import AccountGroupsPage from '@/pages/AccountGroupsPage'
+import NamingRulesPage from '@/pages/NamingRulesPage'
 
 function G({ panelKey, children }: { panelKey: string; children: React.ReactNode }) {
   return <AuthGuard panelKey={panelKey}>{children}</AuthGuard>
@@ -106,6 +108,8 @@ export const router = createBrowserRouter([
       { path: 'settings/integrations',  element: <G panelKey="applications"><IntegrationsPage /></G> },
       { path: 'settings/integrations/tiktok/complete', element: <G panelKey="applications"><PlatformAuthorizationPage key="tiktok" platform="tiktok" /></G> },
       { path: 'settings/integrations/meta/complete', element: <G panelKey="applications"><PlatformAuthorizationPage key="meta" platform="meta" /></G> },
+      { path: 'settings/account-groups', element: <G panelKey="account_groups"><AccountGroupsPage /></G> },
+      { path: 'settings/naming-rules', element: <G panelKey="naming_rules"><NamingRulesPage /></G> },
       { path: 'team',                   element: <G panelKey="team"><TeamPage /></G> },
       { path: 'upgrade-requests',       element: <G panelKey="user_mgmt"><UpgradeRequestsPage /></G> },
     ],

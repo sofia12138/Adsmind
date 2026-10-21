@@ -509,7 +509,9 @@ def _register_routers(application: FastAPI):
 
     from routes.launch_drafts import router as launch_drafts_router
     from routes.distribution import router as distribution_router
+    from routes.application_settings import router as application_settings_router
     for r in [
+        application_settings_router,
         distribution_router,
         launch_drafts_router,
         registration_router,

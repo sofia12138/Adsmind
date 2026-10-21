@@ -341,6 +341,30 @@ class TenantIsolationTests(unittest.TestCase):
             )
             self.assertEqual(finished['status'], 'SUCCEEDED')
 
+    def test_naming_rule_api_is_application_scoped_and_viewer_is_read_only(self):
+        payload = {
+            'name': self.prefix+' naming rule',
+            'rule': {'pattern': '{platform}_{product}_{date}', 'description': 'test'},
+        }
+        created = self.client.post('/api/naming-rules', headers=self.headers[0], json=payload)
+        self.assertEqual(created.status_code, 201, created.text)
+        rule_id = created.json()['data']['id']
+
+        own = self.client.get(f'/api/naming-rules/{rule_id}', headers=self.headers[0])
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual(
+            self.client.get('/api/naming-rules', headers=self.same_tenant_headers).json()['data'],
+            [],
+        )
+        self.assertEqual(
+            self.client.get(f'/api/naming-rules/{rule_id}', headers=self.headers[1]).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post('/api/naming-rules', headers=self.limited_headers, json=payload).status_code,
+            403,
+        )
+
     def test_accounts_cannot_be_read_mutated_rebound_or_overwritten_by_other_tenant(self):
         payload = {'platform': 'tiktok', 'account_id': self.prefix+'acct', 'account_name': self.prefix, 'access_token': 'test-only-no-platform-access', 'app_secret': 'test-secret', 'currency': 'USD'}
         response = self.client.post('/api/ad-accounts/', headers=self.headers[0], json=payload)
