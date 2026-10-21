@@ -1,6 +1,7 @@
 """TikTok Ads 平台适配器 — 包装现有 tiktok_ads.api.campaign"""
 from __future__ import annotations
 
+from core.isolation import default_account_id
 from config import get_settings
 from integrations.base import BaseAdsAdapter
 from schemas.campaign import CampaignDTO
@@ -10,7 +11,7 @@ from tiktok_ads.api.campaign import CampaignService as TikTokCampaignSvc
 class TikTokAdsAdapter(BaseAdsAdapter):
 
     def __init__(self, advertiser_id: str | None = None):
-        self.advertiser_id = advertiser_id or get_settings().tiktok_advertiser_id
+        self.advertiser_id = advertiser_id or default_account_id("tiktok")
         self._svc = TikTokCampaignSvc(self.advertiser_id)
 
     async def list_campaigns(self, *, page: int = 1, page_size: int = 20,

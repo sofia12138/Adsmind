@@ -3,13 +3,14 @@
 from __future__ import annotations
 import json
 from tiktok_ads.api.client import TikTokClient
+from core.isolation import default_account_id
 from config import get_settings
 
 
 class ReportService:
     def __init__(self, advertiser_id: str | None = None, client: TikTokClient | None = None):
-        self.client = client or TikTokClient()
-        self.advertiser_id = advertiser_id or get_settings().tiktok_advertiser_id
+        self.advertiser_id = advertiser_id or default_account_id("tiktok")
+        self.client = client or TikTokClient(account_id=self.advertiser_id or None)
 
     async def get_campaign_report(self, start_date: str, end_date: str, metrics: list[str] | None = None, page: int = 1, page_size: int = 20) -> dict:
         if metrics is None:

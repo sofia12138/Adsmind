@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from meta_ads.api.client import MetaClient
+from core.isolation import default_account_id
 from config import get_settings
 
 
@@ -18,7 +19,7 @@ class MetaAccountService:
         return await self.client.get("me/adaccounts", params)
 
     async def get_account_info(self, ad_account_id: str | None = None) -> dict:
-        account_id = ad_account_id or get_settings().meta_ad_account_id
+        account_id = ad_account_id or default_account_id("meta")
         params = {
             "fields": "account_id,name,account_status,currency,timezone_name,amount_spent,balance",
         }

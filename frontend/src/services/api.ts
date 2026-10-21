@@ -7,6 +7,31 @@ export class AuthError extends Error {
   }
 }
 
+export class ApiError extends Error {
+  readonly status: number
+  readonly code?: string | number
+  readonly requestId?: string
+  constructor(status: number, payload: unknown) {
+    const body = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+    const detail = body.detail
+    const nested = detail && typeof detail === 'object' && !Array.isArray(detail) ? detail as Record<string, unknown> : {}
+    const error = body.error && typeof body.error === 'object' ? body.error as Record<string, unknown> : {}
+    const validation = Array.isArray(detail) ? detail.map(item => {
+      const field = Array.isArray(item.loc) ? item.loc.filter((part: unknown) => part !== 'body' && part !== 'query').join('.') : ''
+      return `${field ? field + '：' : ''}${item.msg ?? '参数不正确'}`
+    }).join('；') : undefined
+    const message = [body.message, nested.message, error.message, typeof detail === 'string' ? detail : validation].find(v => typeof v === 'string' && v.trim())
+    const code = body.code ?? nested.code ?? error.code
+    const requestId = body.request_id ?? body.fbtrace_id ?? nested.request_id
+    const fallback: Record<number, string> = { 403: '没有权限执行此操作', 404: '请求的资源不存在', 429: '请求过于频繁，请稍后重试', 500: '服务暂时异常，请稍后重试', 502: '上游服务暂时不可用', 503: '服务暂时不可用，请稍后重试' }
+    super(`${message ?? fallback[status] ?? '请求失败'}${code != null ? `（错误码：${code}）` : ''}${requestId ? ` · 请求编号：${requestId}` : ''}`)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = typeof code === 'string' || typeof code === 'number' ? code : undefined
+    this.requestId = typeof requestId === 'string' ? requestId : undefined
+  }
+}
+
 /**
  * 阶段 7 配额限流：后端在配额超限时返回 HTTP 422 + detail={ code, message, used, limit, plan_id }
  * 前端业务侧应捕获此错误展示"升级套餐"提示，而不是泛化的 "API 422"。
@@ -87,27 +112,21 @@ export async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> 
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(appId ? { 'X-Application-Id': appId } : {}),
   }
-  const res = await fetch(`${BASE}${path}`, { headers, ...opts })
+  const mergedHeaders = new Headers(headers)
+  new Headers(opts?.headers).forEach((value, key) => mergedHeaders.set(key, value))
+  const res = await fetch(`${BASE}${path}`, { ...opts, headers: mergedHeaders })
   if (res.status === 401) {
     localStorage.removeItem('auth_token')
     throw new AuthError()
   }
   if (!res.ok) {
-    // 阶段 7 配额限流：识别结构化 422 错误并抛出 QuotaExceededError
-    if (res.status === 422) {
-      try {
-        const errBody = await res.clone().json()
-        const d = errBody?.detail
-        if (d && typeof d === 'object' && typeof d.code === 'string'
-            && d.code.startsWith('QUOTA_EXCEEDED')) {
-          throw new QuotaExceededError(d)
-        }
-      } catch (e) {
-        if (e instanceof QuotaExceededError) throw e
-        /* 不是配额错误 → fallthrough */
-      }
+    let payload: unknown
+    try { payload = await res.json() } catch { payload = null }
+    const detail = (payload as { detail?: { code?: string } } | null)?.detail
+    if (res.status === 422 && detail && typeof detail.code === 'string' && detail.code.startsWith('QUOTA_EXCEEDED')) {
+      throw new QuotaExceededError(detail as ConstructorParameters<typeof QuotaExceededError>[0])
     }
-    throw new Error(`API ${res.status}`)
+    throw new ApiError(res.status, payload)
   }
   const json = await res.json()
   try {

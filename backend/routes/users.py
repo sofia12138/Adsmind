@@ -1,7 +1,7 @@
 """用户认证 & 管理路由"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException
 
 from auth import (
     LoginRequest, CreateUserRequest, UpdateUserRequest, UserOut,
@@ -56,16 +56,11 @@ async def login(req: LoginRequest):
                 tenant_slug = chosen.get("slug") or tenant_slug
                 tenant_role = chosen.get("tenant_role") or tenant_role_default
             else:
-                # 旧账号尚未在 app_tenant_members 里：幂等补一条到 internal tenant
-                tenant_member_repository.ensure_member(
-                    tenant_id=INTERNAL_TENANT_ID,
-                    user_id=user_id,
-                    role=tenant_role_default,
-                )
-                tenant_role = tenant_role_default
+                raise HTTPException(403, '没有可用的租户成员身份，请联系管理员')
+    except HTTPException:
+        raise
     except Exception:
-        # 成员关系查询/写入失败不阻断登录（向后兼容旧表结构尚未建立的场景）
-        pass
+        raise HTTPException(503, '租户身份暂时无法验证，请稍后重试')
 
     tenant_ctx = get_tenant_by_id(tenant_id)
 
@@ -148,12 +143,18 @@ async def me(request: Request, user: User = Depends(get_current_user)):
 
 @router.get("/", response_model=list[UserOut])
 async def get_users(_: User = Depends(require_admin)):
-    return list_users()
+    from core.isolation import tenant_id
+    from repositories import tenant_member_repository
+    names = {m['username'] for m in tenant_member_repository.list_by_tenant(tenant_id())}
+    return [u for u in list_users() if u.username in names]
 
 
 @router.post("/", response_model=UserOut)
 async def add_user(req: CreateUserRequest, request: Request,
                    admin: User = Depends(require_admin)):
+    if req.role not in ('admin', 'optimizer', 'designer'):
+        raise HTTPException(400, '租户不能创建平台超级管理员')
+    _check_assigned_accounts(req.assigned_accounts)
     u = create_user(req)
     # 新用户默认加入当前 admin 所在的 tenant（阶段 1 即 internal）
     try:
@@ -169,7 +170,7 @@ async def add_user(req: CreateUserRequest, request: Request,
                 role=tenant_member_repository.map_global_role_to_tenant_role(u.role),
             )
     except Exception:
-        pass
+        raise HTTPException(503, '成员关系保存失败，请联系管理员')
     log_operation(
         username=admin.username,
         action="创建用户",
@@ -184,6 +185,14 @@ async def add_user(req: CreateUserRequest, request: Request,
 
 @router.put("/{username}", response_model=UserOut)
 async def edit_user(username: str, req: UpdateUserRequest, admin: User = Depends(require_admin)):
+    row = _require_tenant_user(username)
+    if req.role is not None and req.role not in ('admin', 'optimizer', 'designer'):
+        raise HTTPException(400, '无效租户角色')
+    if req.assigned_accounts is not None:
+        _check_assigned_accounts(req.assigned_accounts)
+    from repositories import tenant_member_repository
+    if len(tenant_member_repository.list_by_user(row['id'])) > 1:
+        raise HTTPException(409, '跨租户成员请通过团队管理调整当前租户权限')
     u = update_user(username, req)
     log_operation(
         username=admin.username,
@@ -199,7 +208,13 @@ async def edit_user(username: str, req: UpdateUserRequest, admin: User = Depends
 
 @router.delete("/{username}")
 async def remove_user(username: str, admin: User = Depends(require_admin)):
-    delete_user(username)
+    row = _require_tenant_user(username)
+    from core.isolation import tenant_id
+    from repositories import tenant_member_repository
+    member = tenant_member_repository.get(tenant_id(), row['id'])
+    if member['role'] == 'owner':
+        raise HTTPException(400, '不能移除租户所有者')
+    tenant_member_repository.delete(tenant_id(), row['id'])
     log_operation(
         username=admin.username,
         action="删除用户",
@@ -207,3 +222,19 @@ async def remove_user(username: str, admin: User = Depends(require_admin)):
         target_id=username,
     )
     return {"ok": True}
+
+
+def _require_tenant_user(username):
+    from core.isolation import tenant_id
+    from repositories import user_repository, tenant_member_repository
+    row = user_repository.get_by_username(username)
+    if not row or not tenant_member_repository.get(tenant_id(), row['id']):
+        raise HTTPException(404, '成员不存在')
+    return row
+
+
+def _check_assigned_accounts(accounts):
+    from repositories import biz_account_repository
+    allowed = {r['account_id'] for r in biz_account_repository.list_all()}
+    if any(a not in allowed for a in accounts):
+        raise HTTPException(403, '不能分配其他租户的广告账户')

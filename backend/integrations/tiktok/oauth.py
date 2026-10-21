@@ -4,15 +4,13 @@
 
 要点：
   - 授权码换 token 使用 `app_id` + `secret` + `auth_code`（TikTok 自家字段名）。
-  - access_token 长期有效（一年），不返回 refresh_token；
-    续期通过用户重新授权完成，因此本实现的 `refresh()` 抛 OAuthError。
+  - 凭证有效期采用平台响应；需要续期时引导用户重新授权。
   - 返回数据包含可管理的 `advertiser_ids`，调用 `/oauth2/advertiser/get/`
     可拿到 advertiser 详情；这里默认拉一次回灌到 `TokenBundle.accounts`。
 """
 from __future__ import annotations
 
 import httpx
-from loguru import logger
 
 from config import get_settings
 from integrations.oauth_base import OAuthFlow, OAuthError, TokenBundle, expires_at_from_seconds
@@ -44,17 +42,18 @@ class TikTokOAuth(OAuthFlow):
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
                 resp = await client.post(url, json=payload)
+                resp.raise_for_status()
             except httpx.HTTPError as e:
-                raise OAuthError(f"TikTok 网络错误：{e}") from e
+                raise OAuthError('连接 TikTok 失败，请重新授权') from e
         data = resp.json() if resp.content else {}
         if data.get("code") != 0:
-            raise OAuthError(f"TikTok 授权失败：{data.get('message') or 'unknown'}")
+            raise OAuthError('TikTok 拒绝本次授权，请重新连接')
         d = data.get("data", {}) or {}
         access_token = d.get("access_token") or ""
         if not access_token:
             raise OAuthError("TikTok 响应缺少 access_token")
-        # TikTok 文档：access_token 默认 1 年；接口若返回 access_token_expire_in 则用之
-        expires_at = expires_at_from_seconds(d.get("access_token_expire_in") or 86400 * 365)
+        # 不假设凭证有效期；只采用平台明确返回的期限。
+        expires_at = expires_at_from_seconds(d.get("access_token_expire_in"))
         scopes = d.get("scope") or []
         if isinstance(scopes, int):
             scopes = [str(scopes)]
@@ -75,29 +74,11 @@ class TikTokOAuth(OAuthFlow):
         raise OAuthError("TikTok 不支持 refresh_token，请引导用户重新授权")
 
     async def _fetch_advertisers(self, access_token: str, advertiser_ids: list[str]) -> list[dict]:
-        """调用 `/oauth2/advertiser/get/` 拉广告主详情。失败返回退化结构。"""
-        if not advertiser_ids:
-            return []
-        url = f"{self.api_base_url}/oauth2/advertiser/get/"
-        headers = {"Access-Token": access_token, "Content-Type": "application/json"}
-        params = {"app_id": self.app_id, "secret": self.app_secret}
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(url, headers=headers, params=params)
-            data = resp.json()
-        except Exception as e:
-            logger.warning(f"TikTok 拉取 advertiser 详情失败：{e}")
-            return [{"account_id": str(aid), "account_name": ""} for aid in advertiser_ids]
-        if data.get("code") != 0:
-            logger.warning(f"TikTok advertiser/get 非 0 响应：{data}")
-            return [{"account_id": str(aid), "account_name": ""} for aid in advertiser_ids]
-        out: list[dict] = []
-        for a in (data.get("data", {}) or {}).get("list", []):
-            out.append({
-                "account_id": str(a.get("advertiser_id", "")),
-                "account_name": a.get("advertiser_name", "") or "",
-                "currency": a.get("currency", "USD"),
-                "timezone": a.get("timezone", ""),
-                "status": a.get("status", ""),
-            })
-        return out
+        from services.account_service import _verify_tiktok
+        result = await _verify_tiktok(access_token, self.app_id, self.app_secret)
+        if not result['valid']:
+            raise OAuthError(result['error'])
+        allowed = {str(account_id) for account_id in advertiser_ids}
+        if not allowed:
+            raise OAuthError('TikTok 未返回本次授权的广告账号')
+        return [account for account in result['accounts'] if account['account_id'] in allowed]

@@ -57,6 +57,10 @@ class MetaClient:
         """
         settings = get_settings()
         self.base_url = settings.meta_api_base_url
+        if account_id:
+            from services.credential_service import _check_account_scope
+            from core.isolation import tenant_id as current_tenant_id
+            _check_account_scope(tenant_id if tenant_id is not None else current_tenant_id(), 'meta', account_id)
 
         token = access_token
         token_source = "explicit" if token else "none"
@@ -96,12 +100,41 @@ class MetaClient:
         return data
 
     async def get(self, endpoint: str, params: dict | None = None) -> dict:
+        self._check_endpoint(endpoint)
+        parts = endpoint.strip('/').split('/')
+        if len(parts) > 1 and parts[0].isdecimal() and parts[1] in ('ads', 'adsets', 'insights'):
+            from core.isolation import check_entity
+            check_entity('meta', 'adgroup' if parts[1] == 'ads' else 'campaign', parts[0])
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         logger.info(f"META GET {url}")
         resp = await self._client.get(url, params=self._add_token(params))
         return await self._handle_response(resp)
 
     async def post(self, endpoint: str, payload: dict | None = None) -> dict:
+        self._check_endpoint(endpoint)
+        root = endpoint.strip('/').split('/')[0]
+        if root.isdecimal():
+            from core.isolation import check_entity
+            from fastapi import HTTPException
+            for level in ('campaign', 'adgroup', 'ad'):
+                try:
+                    check_entity('meta', level, root)
+                    break
+                except HTTPException:
+                    continue
+            else:
+                raise HTTPException(403, '对象不属于当前租户或尚未同步')
+        from services.launch_draft_service import checkpoint_call
+        return await checkpoint_call('meta', endpoint, payload, lambda: self._post_unchecked(endpoint, dict(payload or {})))
+
+    def _check_endpoint(self, endpoint):
+        root = endpoint.strip('/').split('/')[0]
+        if root.startswith('act_'):
+            from services.credential_service import _check_account_scope
+            from core.isolation import tenant_id
+            _check_account_scope(tenant_id(), 'meta', root)
+
+    async def _post_unchecked(self, endpoint: str, payload: dict | None = None) -> dict:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         logger.info(f"META POST {url}")
         payload = payload or {}

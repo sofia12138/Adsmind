@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -36,6 +37,11 @@ def _check_dates(start_date: str, end_date: str):
         raise HTTPException(400, f"start_date 格式错误，应为 YYYY-MM-DD，实际: {start_date}")
     if not _DATE_RE.match(end_date):
         raise HTTPException(400, f"end_date 格式错误，应为 YYYY-MM-DD，实际: {end_date}")
+    try:
+        date.fromisoformat(start_date)
+        date.fromisoformat(end_date)
+    except ValueError:
+        raise HTTPException(400, '请选择有效的日历日期')
     if start_date > end_date:
         raise HTTPException(400, f"start_date({start_date}) 不能大于 end_date({end_date})")
 
@@ -86,6 +92,8 @@ async def biz_update_status(
     status: str = Query(..., description="新状态"),
 ):
     """操作成功后同步更新 BIZ 库中的 status 字段"""
+    from core.isolation import check_entity
+    check_entity(platform, entity_type, entity_id)
     if entity_type == "campaign":
         affected = await asyncio.to_thread(biz_campaign_repository.update_status, platform, entity_id, status)
     elif entity_type == "adgroup":
@@ -155,7 +163,15 @@ async def biz_overview(
         return {
             "code": 0,
             "message": "ok",
-            "data": {"_source": src, "_hint": flt.hint, "_application_id": application.id},
+            "data": {
+                "total_spend": 0, "total_revenue": 0,
+                "total_impressions": 0, "total_clicks": 0,
+                "total_installs": 0, "total_conversions": 0,
+                "total_registrations": 0, "attribution_spend": 0,
+                "avg_ctr": None, "avg_cpc": None, "avg_cpm": None,
+                "avg_cpi": None, "avg_cpa": None, "avg_roas": None,
+                "_source": src, "_hint": flt.hint, "_application_id": application.id,
+            },
         }
     account_id = flt.account_id
 
@@ -358,29 +374,35 @@ async def biz_adgroup_aggregated(
     order_by: str = Query("total_spend"),
     order_dir: str = Query("desc"),
     source: str = Query("auto", description="数据源: auto/attribution/legacy"),
+    account_id: Optional[str] = Query(None),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     """Adgroup 聚合数据 — 按 adgroup_id 分组，支持按 campaign_id 过滤"""
     _check_dates(start_date, end_date)
     src = _resolve_source(source)
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {"code": 0, "message": "ok", "data": [], "_hint": flt.hint}
+    account_id = flt.account_id
     if src == "attribution":
         rows = await asyncio.to_thread(
             biz_attribution_service.get_adgroup_aggregated,
             start_date, end_date,
-            platform=platform, campaign_id=campaign_id,
+            platform=platform, account_id=account_id, campaign_id=campaign_id,
             order_by=order_by, order_dir=order_dir,
         )
     elif src == "blend":
         rows = await asyncio.to_thread(
             biz_blend_service.get_adgroup_aggregated,
             start_date, end_date,
-            platform=platform, campaign_id=campaign_id,
+            platform=platform, account_id=account_id, campaign_id=campaign_id,
             order_by=order_by, order_dir=order_dir,
         )
     else:
         rows = await asyncio.to_thread(
             biz_adgroup_daily_repository.get_adgroup_aggregated,
             start_date, end_date,
-            platform=platform, campaign_id=campaign_id,
+            platform=platform, account_id=account_id, campaign_id=campaign_id,
             order_by=order_by, order_dir=order_dir,
         )
     for row in rows:
@@ -400,15 +422,21 @@ async def biz_ad_aggregated(
     order_by: str = Query("total_spend"),
     order_dir: str = Query("desc"),
     source: str = Query("auto", description="数据源: auto/attribution/legacy"),
+    account_id: Optional[str] = Query(None),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     """Ad 聚合数据 — 按 ad_id 分组，支持按 adgroup_id 过滤"""
     _check_dates(start_date, end_date)
     src = _resolve_source(source)
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {"code": 0, "message": "ok", "data": [], "_hint": flt.hint}
+    account_id = flt.account_id
     if src == "attribution":
         rows = await asyncio.to_thread(
             biz_attribution_service.get_ad_aggregated,
             start_date, end_date,
-            platform=platform,
+            platform=platform, account_id=account_id,
             campaign_id=campaign_id, adgroup_id=adgroup_id,
             order_by=order_by, order_dir=order_dir,
         )
@@ -416,7 +444,7 @@ async def biz_ad_aggregated(
         rows = await asyncio.to_thread(
             biz_blend_service.get_ad_aggregated,
             start_date, end_date,
-            platform=platform,
+            platform=platform, account_id=account_id,
             campaign_id=campaign_id, adgroup_id=adgroup_id,
             order_by=order_by, order_dir=order_dir,
         )
@@ -424,7 +452,7 @@ async def biz_ad_aggregated(
         rows = await asyncio.to_thread(
             biz_ad_daily_repository.get_ad_aggregated,
             start_date, end_date,
-            platform=platform, campaign_id=campaign_id, adgroup_id=adgroup_id,
+            platform=platform, account_id=account_id, campaign_id=campaign_id, adgroup_id=adgroup_id,
             order_by=order_by, order_dir=order_dir,
         )
     for row in rows:
@@ -522,29 +550,35 @@ async def creative_analysis(
     min_spend: float = Query(10, description="低表现榜最小消耗门槛"),
     top_n: int = Query(5, ge=1, le=20),
     source: str = Query("auto", description="数据源: auto/attribution/legacy"),
+    account_id: Optional[str] = Query(None),
+    application: ApplicationCtx = Depends(get_current_application),
 ):
     """素材分析综合接口 — 基于 ad 维度聚合，返回 overview / top / low / list"""
     _check_dates(start_date, end_date)
     src = _resolve_source(source)
-    if src == "attribution":
+    flt = resolve_account_filter(application, account_id)
+    account_id = flt.account_id
+    if flt.skip_query:
+        agg_rows = []
+    elif src == "attribution":
         agg_rows = await asyncio.to_thread(
             biz_attribution_service.get_ad_aggregated,
             start_date, end_date,
-            platform=platform,
+            platform=platform, account_id=account_id,
             order_by="total_spend", order_dir="desc",
         )
     elif src == "blend":
         agg_rows = await asyncio.to_thread(
             biz_blend_service.get_ad_aggregated,
             start_date, end_date,
-            platform=platform,
+            platform=platform, account_id=account_id,
             order_by="total_spend", order_dir="desc",
         )
     else:
         agg_rows = await asyncio.to_thread(
             biz_ad_daily_repository.get_ad_aggregated,
             start_date, end_date,
-            platform=platform,
+            platform=platform, account_id=account_id,
             order_by="total_spend", order_dir="desc",
         )
 
@@ -607,3 +641,40 @@ async def creative_analysis(
             "_source": src,
         },
     }
+
+
+@router.get('/console/{level}')
+async def console_rows(
+    level: str,
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+    platform: str = Query(..., pattern='^(tiktok|meta)$'),
+    account_id: Optional[str] = Query(None),
+    campaign_id: Optional[str] = Query(None),
+    adgroup_id: Optional[str] = Query(None),
+    q: str = Query('', max_length=200),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    order_by: str = Query('total_spend', pattern='^(total_spend|total_revenue|roas|ctr|cpc|total_registrations|total_installs|total_clicks|total_impressions|total_conversions|cpi|cpa|cpm)$'),
+    order_dir: str = Query('desc', pattern='^(asc|desc)$'),
+    source: str = Query('auto'),
+    application: ApplicationCtx = Depends(get_current_application),
+):
+    from services import console_service
+    if level not in console_service.LEVELS:
+        raise HTTPException(404, '未知广告层级')
+    if level == 'adgroup' and not campaign_id:
+        raise HTTPException(400, '请选择广告系列')
+    if level == 'ad' and not adgroup_id:
+        raise HTTPException(400, '请选择广告组')
+    _check_dates(start_date, end_date)
+    src = _resolve_source(source)
+    flt = resolve_account_filter(application, account_id)
+    if flt.skip_query:
+        return {'code': 0, 'message': 'ok', 'data': {'list': [], 'total': 0, 'page': 1, 'page_size': page_size}, '_hint': flt.hint, '_source': src}
+    data = await asyncio.to_thread(
+        console_service.query, level, start_date, end_date,
+        platform=platform, account_id=flt.account_id, source=src, order_by=order_by, order_dir=order_dir,
+        campaign_id=campaign_id, adgroup_id=adgroup_id, q=q, page=page, page_size=page_size,
+    )
+    return {'code': 0, 'message': 'ok', 'data': data, '_source': src}

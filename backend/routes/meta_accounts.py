@@ -6,11 +6,10 @@ router = APIRouter(prefix="/meta/accounts", tags=["Meta 广告账户"])
 
 @router.get("/")
 async def list_accounts():
-    try:
-        data = await MetaAccountService().list_accounts()
-        return {"data": data.get("data", [])}
-    except Exception as e:
-        return {"data": [], "error": str(e)}
+    from repositories import biz_account_repository
+    from core.isolation import application_id
+    rows = biz_account_repository.list_by_platform('meta', application_id=application_id())
+    return {"data": [{"id": r['account_id'], "account_id": r['account_id'], "name": r['account_name'], "currency": r['currency'], "timezone_name": r['timezone']} for r in rows]}
 
 
 @router.get("/info")

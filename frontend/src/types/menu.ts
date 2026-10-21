@@ -5,8 +5,12 @@ export interface MenuItem {
   label: string
   icon?: LucideIcon
   path?: string
+  /** 独立工具入口，在新标签页打开。 */
+  externalUrl?: string
   children?: MenuItem[]
   panelKey?: string
+  /** 平台内部管理入口，不向客户团队展示。 */
+  internalOnly?: boolean
   /**
    * 阶段 3：业务插件 key。
    * 若提供，则该菜单项还要求当前租户启用该插件（AuthContext.hasPlugin）。

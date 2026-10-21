@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/components/common/PageHeader'
 import { DateRangeFilter, getDefaultDateRange, type DateRange } from '@/components/common/DateRangeFilter'
 import {
@@ -222,6 +222,7 @@ export default function CreativesPage() {
         </td>
         <td className="px-4 py-3">
           <ActionMenu previewUrl={url} itemId={id} />
+          <Link to={`/distribution/youtube?${new URLSearchParams({ material_id: id, file_name: r.file_name || '' })}`} className="inline-block mt-2 text-xs text-blue-600">去发行</Link>
         </td>
       </tr>
     )

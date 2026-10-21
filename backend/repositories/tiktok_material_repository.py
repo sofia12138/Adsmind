@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from core.isolation import tenant_cursor
 from db import get_biz_conn
 
 
@@ -15,7 +16,7 @@ def create(data: dict) -> int:
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'tiktok_material_uploads')
         cur.execute(sql, (
             data["advertiser_id"],
             data.get("local_file_name", ""),
@@ -51,7 +52,7 @@ def update_status(record_id: int, status: str, **kwargs) -> int:
     sql = f"UPDATE tiktok_material_uploads SET {', '.join(fields)} WHERE id = %s"
 
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'tiktok_material_uploads')
         cur.execute(sql, params)
         conn.commit()
         return cur.rowcount
@@ -60,7 +61,7 @@ def update_status(record_id: int, status: str, **kwargs) -> int:
 def get_by_id(record_id: int) -> Optional[dict]:
     sql = "SELECT * FROM tiktok_material_uploads WHERE id = %s"
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'tiktok_material_uploads')
         cur.execute(sql, (record_id,))
         return cur.fetchone()
 
@@ -68,7 +69,7 @@ def get_by_id(record_id: int) -> Optional[dict]:
 def delete_by_id(record_id: int) -> int:
     sql = "DELETE FROM tiktok_material_uploads WHERE id = %s"
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'tiktok_material_uploads')
         cur.execute(sql, (record_id,))
         conn.commit()
         return cur.rowcount
@@ -100,7 +101,7 @@ def list_all(
     where = " AND ".join(clauses)
 
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'tiktok_material_uploads')
         cur.execute(f"SELECT COUNT(*) AS cnt FROM tiktok_material_uploads WHERE {where}", params)
         total = cur.fetchone()["cnt"]
 

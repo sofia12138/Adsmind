@@ -283,12 +283,14 @@ def require_application_role(*allowed_roles: str):
         application = get_current_application(request)
 
         # 全局 admin 自动通过
-        global_role = _peek_global_role_from_jwt(request)
+        from auth import get_current_user
+        user = get_current_user(request)
+        global_role = user.role
         if global_role in ("super_admin", "admin"):
             return application
 
         # 否则查应用成员表
-        username = _peek_username_from_jwt(request)
+        username = user.username
         if not username:
             raise HTTPException(status_code=401, detail="需要登录")
         user_id = _user_id_by_username(username)

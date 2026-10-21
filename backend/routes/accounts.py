@@ -1,7 +1,7 @@
 """广告账户管理路由"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
 from auth import require_admin, get_current_user
@@ -20,9 +20,6 @@ def _filter_by_application(application: ApplicationCtx) -> int | None:
       - **internal tenant 的非默认应用** → 严格按 application_id 过滤
       - **外部租户（含其默认应用）** → 严格按 application_id 过滤，避免跨租户泄露
     """
-    from core.tenant import INTERNAL_TENANT_ID
-    if application.is_default and application.tenant_id == INTERNAL_TENANT_ID:
-        return None
     return application.id
 
 
@@ -99,7 +96,7 @@ async def add_account(
     #   并会绕过配额计数）
     from core.tenant import INTERNAL_TENANT_ID
     is_internal_default = application.is_default and application.tenant_id == INTERNAL_TENANT_ID
-    bind_to_app = None if is_internal_default else application.id
+    bind_to_app = application.id
 
     # 阶段 7 配额限流：external 租户检查账号数上限；internal 永不拦截。
     # 这里 existing_account_id 传当次入参的 account_id（若已属于本租户其它应用，
@@ -132,6 +129,24 @@ async def add_account(
         error_message=f"添加 {req.platform} 账户: {req.account_name or req.account_id} ({req.currency}/{req.timezone})",
     )
     return {"data": row}
+
+
+@router.post('/connect', summary='验证授权后连接广告账号')
+async def connect_account(req: AddAccountRequest, user=Depends(require_admin),
+                          application: ApplicationCtx = Depends(get_current_application)):
+    result = await account_service.verify_token(req.platform, req.access_token, req.app_id, req.app_secret)
+    if not result['valid']:
+        raise HTTPException(422, result.get('error') or '平台授权验证失败')
+    account = next((a for a in result['accounts'] if a['account_id'] == req.account_id), None)
+    if not account:
+        raise HTTPException(403, '所选账号不在当前凭证的授权范围内')
+    # Metadata comes from the platform, never from editable client fields.
+    validated = req.model_copy(update={
+        'account_name': account['account_name'],
+        'currency': account.get('currency') or 'USD',
+        'timezone': account.get('timezone') or 'UTC',
+    })
+    return await add_account(validated, user, application)
 
 
 @router.put("/{row_id}")

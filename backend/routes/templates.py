@@ -638,11 +638,27 @@ async def launch_from_template(payload: dict = Body(...), _user: User = Depends(
       overrides         - 可选覆盖字段, 支持 campaign/adset/creative/ad 子节点
     """
     tpl_id = payload.get("template_id")
-    tpl = template_service.get_template(tpl_id)
+    from services.launch_draft_service import active_template
+    tpl = active_template(tpl_id) or template_service.get_template(tpl_id)
     if not tpl:
         return {"error": "模板不存在"}
 
     platform = tpl.get("platform", "tiktok")
+    from services.credential_service import _check_account_scope
+    from core.isolation import tenant_id
+    from fastapi import HTTPException
+    aid = payload.get('ad_account_id' if platform == 'meta' else 'advertiser_id')
+    if not aid:
+        raise HTTPException(400, '请选择广告账户')
+    _check_account_scope(tenant_id(), platform, str(aid))
+    from repositories import biz_account_repository
+    from services.launch_budget import budget_checks
+    account_row = biz_account_repository.get_by_platform_account(platform, str(aid))
+    failed_budget_checks = [check for check in budget_checks(payload, platform, (account_row or {}).get('currency')) if not check['ok']]
+    if failed_budget_checks:
+        raise HTTPException(422, {'message': '请核对预算币种与金额', 'checks': failed_budget_checks})
+    if _user.role == 'optimizer' and str(aid) not in _user.assigned_accounts:
+        raise HTTPException(403, '广告账户未分配给当前优化师')
     template_type = (tpl.get("template_type") or "").lower()
     logger.info(f"[launch] template_id={tpl_id}  platform={platform}  type={template_type}")
 

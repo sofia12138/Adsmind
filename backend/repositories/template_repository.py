@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from core.isolation import tenant_cursor
 from db import get_app_conn
 from services.delivery_language import (
     DEFAULT_DELIVERY_LANGUAGE,
@@ -49,14 +50,14 @@ def _row_to_dict(row: dict) -> dict:
 
 def list_all() -> list[dict]:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'app_templates')
         cur.execute("SELECT * FROM app_templates ORDER BY id")
         return [_row_to_dict(r) for r in cur.fetchall()]
 
 
 def get_by_tpl_id(tpl_id: str) -> Optional[dict]:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'app_templates')
         cur.execute("SELECT * FROM app_templates WHERE tpl_id = %s", (tpl_id,))
         row = cur.fetchone()
     return _row_to_dict(row) if row else None
@@ -64,7 +65,7 @@ def get_by_tpl_id(tpl_id: str) -> Optional[dict]:
 
 def get_by_key(template_key: str) -> Optional[dict]:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'app_templates')
         cur.execute("SELECT * FROM app_templates WHERE template_key = %s LIMIT 1", (template_key,))
         row = cur.fetchone()
     return _row_to_dict(row) if row else None
@@ -77,7 +78,7 @@ def create(*, tpl_id: str, name: str, platform: str,
            parent_template_id: Optional[str] = None,
            created_by: str = "", created_at: str | None = None) -> dict:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'app_templates')
         sql = """INSERT INTO app_templates
                     (tpl_id, template_key, name, platform,
                      is_builtin, is_system, is_editable, parent_template_id,
@@ -111,7 +112,7 @@ def update(tpl_id: str, *, name: str | None = None,
         return get_by_tpl_id(tpl_id)
     values.append(tpl_id)
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'app_templates')
         cur.execute(
             f"UPDATE app_templates SET {', '.join(set_parts)} WHERE tpl_id = %s",
             values,
@@ -122,7 +123,7 @@ def update(tpl_id: str, *, name: str | None = None,
 
 def delete(tpl_id: str) -> bool:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'app_templates')
         cur.execute("DELETE FROM app_templates WHERE tpl_id = %s", (tpl_id,))
         conn.commit()
         return cur.rowcount > 0

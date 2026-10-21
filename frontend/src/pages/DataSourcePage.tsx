@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/common/PageHeader'
 import { SectionCard } from '@/components/common/SectionCard'
 import { FilterBar } from '@/components/common/FilterBar'
@@ -8,6 +9,9 @@ import {
 import type { AdAccount } from '@/services/accounts-mgmt'
 import { fetchAdAccounts, deleteAdAccount, setDefaultAccount } from '@/services/accounts-mgmt'
 import AddAccountModal from '@/components/account/AddAccountModal'
+import { GlobalSyncBar } from '@/components/common/GlobalSyncBar'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAuth } from '@/contexts/AuthContext'
 
 const PLATFORM_LABEL: Record<string, string> = { tiktok: 'TikTok', meta: 'Meta' }
 const STATUS_STYLE: Record<string, string> = {
@@ -17,22 +21,24 @@ const STATUS_STYLE: Record<string, string> = {
 }
 
 export default function DataSourcePage() {
-  const [accounts, setAccounts] = useState<AdAccount[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const { currentApplication } = useAuth()
+  const [error, setError] = useState('')
   const [filter, setFilter] = useState<string>('')
   const [showAdd, setShowAdd] = useState(false)
   const [deleting, setDeleting] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetchAdAccounts(filter || undefined)
-      setAccounts(res.data || [])
-    } catch { /* ignore */ }
-    setLoading(false)
-  }, [filter])
-
-  useEffect(() => { load() }, [load])
+  const accountQuery = useQuery({
+    queryKey: ['ad-accounts', currentApplication?.id, filter],
+    queryFn: () => fetchAdAccounts(filter || undefined),
+    enabled: !!currentApplication,
+  })
+  const accounts: AdAccount[] = accountQuery.data?.data ?? []
+  const loading = accountQuery.isPending || accountQuery.isFetching
+  const load = async () => {
+    setError('')
+    await accountQuery.refetch()
+  }
 
   const handleDelete = async (id: number) => {
     if (!confirm('确定删除此账户？删除后不可恢复。')) return
@@ -40,7 +46,7 @@ export default function DataSourcePage() {
     try {
       await deleteAdAccount(id)
       await load()
-    } catch { /* ignore */ }
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : '删除失败') }
     setDeleting(null)
   }
 
@@ -48,7 +54,7 @@ export default function DataSourcePage() {
     try {
       await setDefaultAccount(id)
       await load()
-    } catch { /* ignore */ }
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : '设置默认账号失败') }
   }
 
   return (
@@ -56,15 +62,19 @@ export default function DataSourcePage() {
       <PageHeader
         title="数据源配置"
         description="管理 TikTok / Meta 广告账户连接，添加新账户后可同步投放数据"
-        action={
+        action={<div className="flex items-center gap-3"><Link to="/settings/integrations" className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm">授权连接</Link>
           <button
             onClick={() => setShowAdd(true)}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition"
           >
-            <Plus className="w-4 h-4" /> 添加账户
+            <Plus className="w-4 h-4" /> 手动连接
           </button>
-        }
+        </div>}
       />
+
+      <p className="text-sm text-gray-500">当前应用：{currentApplication?.name ?? '加载中…'}。完成连接后，点击「立即同步」读取投放数据。</p>
+      {(error || accountQuery.error) && <p role="alert" className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error || accountQuery.error?.message}</p>}
+      {accounts.length > 0 && <GlobalSyncBar defaultExpanded />}
 
       <FilterBar>
         <Database className="w-3.5 h-3.5 text-gray-400" />
@@ -180,8 +190,12 @@ export default function DataSourcePage() {
 
       {showAdd && (
         <AddAccountModal
-          onClose={() => setShowAdd(false)}
-          onSuccess={() => { setShowAdd(false); load() }}
+          onClose={() => { setShowAdd(false); load() }}
+          onSuccess={() => {
+            setShowAdd(false); load()
+            queryClient.invalidateQueries({ queryKey: ['biz'] })
+            queryClient.invalidateQueries({ queryKey: ['ad-accounts'] })
+          }}
         />
       )}
     </div>

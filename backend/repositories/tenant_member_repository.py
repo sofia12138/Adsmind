@@ -136,7 +136,7 @@ def backfill_internal_members(internal_tenant_id: int = 1) -> int:
     try:
         with get_app_conn() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT id, role FROM app_users")
+            cur.execute("SELECT id, role FROM app_users u WHERE username IN ('admin', 'superadmin') AND NOT EXISTS (SELECT 1 FROM app_tenant_members m WHERE m.user_id=u.id)")
             rows = cur.fetchall() or []
             for row in rows:
                 user_id = int(row["id"])

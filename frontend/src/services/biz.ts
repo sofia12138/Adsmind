@@ -8,6 +8,7 @@ export interface BizDateRange {
   startDate: string            // YYYY-MM-DD
   endDate: string              // YYYY-MM-DD
   platform?: string            // tiktok | meta, 缺省 = 全部
+  account_id?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,8 @@ export interface PaginatedResult<T> {
 export interface AggRow {
   platform: string
   account_id: string
+  status?: string
+  budget?: number | null
   campaign_id: string
   campaign_name: string
   adgroup_id?: string
@@ -317,6 +320,7 @@ export async function fetchBizOverview(p: BizDateRange): Promise<BizOverview> {
       start_date: p.startDate,
       end_date: p.endDate,
       platform: p.platform,
+      account_id: p.account_id,
     })}`,
   )
   return r.data
@@ -328,6 +332,7 @@ export async function fetchBizTopCampaigns(p: TopCampaignsParams): Promise<BizTo
       start_date: p.startDate,
       end_date: p.endDate,
       platform: p.platform,
+      account_id: p.account_id,
       metric: p.metric,
       limit: p.limit,
     })}`,
@@ -341,6 +346,7 @@ export async function fetchBizCampaignDaily(p: CampaignDailyParams): Promise<Pag
       start_date: p.startDate,
       end_date: p.endDate,
       platform: p.platform,
+      account_id: p.account_id,
       page: p.page,
       page_size: p.page_size,
       order_by: p.order_by,
@@ -356,6 +362,7 @@ export async function fetchBizAdgroupDaily(p: AdgroupDailyParams): Promise<Pagin
       start_date: p.startDate,
       end_date: p.endDate,
       platform: p.platform,
+      account_id: p.account_id,
       name_filter: p.name_filter,
       page: p.page,
       page_size: p.page_size,
@@ -372,6 +379,7 @@ export async function fetchBizAdDaily(p: AdDailyParams): Promise<PaginatedResult
       start_date: p.startDate,
       end_date: p.endDate,
       platform: p.platform,
+      account_id: p.account_id,
       name_filter: p.name_filter,
       page: p.page,
       page_size: p.page_size,
@@ -392,6 +400,7 @@ export async function fetchCampaignAgg(p: AggParams): Promise<AggRow[]> {
       start_date: p.startDate,
       end_date: p.endDate,
       platform: p.platform,
+      account_id: p.account_id,
       order_by: p.order_by,
       order_dir: p.order_dir,
     })}`,
@@ -405,6 +414,7 @@ export async function fetchAdgroupAgg(p: AggParams): Promise<AggRow[]> {
       start_date: p.startDate,
       end_date: p.endDate,
       platform: p.platform,
+      account_id: p.account_id,
       campaign_id: p.campaign_id,
       order_by: p.order_by,
       order_dir: p.order_dir,
@@ -419,6 +429,7 @@ export async function fetchAdAgg(p: AggParams): Promise<AggRow[]> {
       start_date: p.startDate,
       end_date: p.endDate,
       platform: p.platform,
+      account_id: p.account_id,
       campaign_id: p.campaign_id,
       adgroup_id: p.adgroup_id,
       order_by: p.order_by,
@@ -474,4 +485,25 @@ export async function fetchCreativeAnalysis(params: {
     })}`,
   )
   return r.data
+}
+
+
+export interface ConsoleParams extends AggParams { q?: string; page?: number; page_size?: number }
+export function fetchConsolePage(level: 'campaign' | 'adgroup' | 'ad', p: ConsoleParams): Promise<PaginatedResult<AggRow>> {
+  return apiFetch<ApiResp<PaginatedResult<AggRow>>>(`/api/biz/console/${level}${qs({
+    start_date: p.startDate, end_date: p.endDate, platform: p.platform, account_id: p.account_id,
+    campaign_id: p.campaign_id, adgroup_id: p.adgroup_id, order_by: p.order_by, order_dir: p.order_dir,
+    q: p.q, page: p.page, page_size: p.page_size,
+  })}`).then(r => r.data)
+}
+
+export async function fetchConsoleChildren(level: 'adgroup' | 'ad', p: AggParams): Promise<AggRow[]> {
+  const rows: AggRow[] = []
+  let page = 1
+  while (true) {
+    const result = await fetchConsolePage(level, { ...p, page, page_size: 200 })
+    rows.push(...result.list)
+    if (!result.list.length || rows.length >= result.total || result.page < page) return rows
+    page++
+  }
 }

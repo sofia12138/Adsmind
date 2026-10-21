@@ -27,7 +27,6 @@ export function OnboardingChecklist({
   applicationName,
   hint,
 }: OnboardingChecklistProps) {
-  const appPath = applicationId ? `/applications/${applicationId}` : '/applications'
 
   const steps: Step[] = [
     {
@@ -41,9 +40,9 @@ export function OnboardingChecklist({
       key: 'bind',
       icon: Plug,
       title: '绑定广告账号',
-      description: '在应用配置页绑定 TikTok / Meta 账号，授权访问广告数据',
+      description: '填写平台凭证并选择广告账号，连接到当前应用',
       done: false,
-      action: { label: '去绑定 →', to: appPath },
+      action: { label: '连接广告账号 →', to: '/data-source' },
     },
     {
       key: 'view',

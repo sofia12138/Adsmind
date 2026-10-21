@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { listApplications, type Application } from '@/services/application'
+import { useQueryClient } from '@tanstack/react-query'
 
 /**
  * 阶段 1：AuthContext 增加 tenant 上下文字段。
@@ -135,7 +136,9 @@ function loadFromStorage(): AuthState {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient()
   const [state, setState] = useState<AuthState>(loadFromStorage)
+  const identity = useRef({ username: state.username, tenantId: state.tenant.id })
 
   const setAuth = useCallback((
     panels: string[],
@@ -143,10 +146,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     username: string,
     tenant?: TenantInfo | null,
   ) => {
+    if (identity.current.username !== username || identity.current.tenantId !== (tenant?.id ?? 1)) {
+      queryClient.clear()
+      localStorage.removeItem('current_application_id')
+    }
     localStorage.setItem('auth_panels', JSON.stringify(panels))
     localStorage.setItem('auth_role', role)
     localStorage.setItem('auth_user', username)
     const finalTenant = tenant ?? DEFAULT_INTERNAL_TENANT
+    identity.current = { username, tenantId: finalTenant.id }
     localStorage.setItem('auth_tenant', JSON.stringify(finalTenant))
     setState(s => ({
       ...s,
@@ -156,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tenant: finalTenant,
       loaded: true,
     }))
-  }, [])
+  }, [queryClient])
 
   const hasPanel = useCallback((panelKey: string) => {
     if (state.role === 'super_admin') return true
@@ -226,6 +234,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [state.applications])
 
   const logout = useCallback(() => {
+    queryClient.clear()
+    identity.current = { username: '', tenantId: 0 }
     localStorage.removeItem('auth_token')
     localStorage.removeItem('auth_user')
     localStorage.removeItem('auth_role')
@@ -241,7 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       currentApplication: null,
       loaded: false,
     })
-  }, [])
+  }, [queryClient])
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token')

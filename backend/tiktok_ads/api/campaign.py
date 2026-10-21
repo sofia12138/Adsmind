@@ -3,13 +3,14 @@
 from __future__ import annotations
 from tiktok_ads.api.client import TikTokClient
 from tiktok_ads.models.campaign import CampaignCreate, CampaignUpdate
+from core.isolation import default_account_id
 from config import get_settings
 
 
 class CampaignService:
     def __init__(self, advertiser_id: str | None = None, client: TikTokClient | None = None):
-        self.client = client or TikTokClient()
-        self.advertiser_id = advertiser_id or get_settings().tiktok_advertiser_id
+        self.advertiser_id = advertiser_id or default_account_id("tiktok")
+        self.client = client or TikTokClient(account_id=self.advertiser_id or None)
 
     async def create(self, campaign: CampaignCreate) -> dict:
         payload = {"advertiser_id": self.advertiser_id, **campaign.model_dump(exclude_none=True)}

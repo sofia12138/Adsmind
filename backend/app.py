@@ -250,7 +250,13 @@ async def lifespan(application: FastAPI):
     validate_db_config()
     logger.info("正在初始化应用元数据表...")
     init_app_tables()
+    from services.launch_draft_service import init_table as init_launch_drafts
+    init_launch_drafts()
+    from services.distribution_service import init_tables as init_distribution
+    init_distribution()
     init_biz_tables()
+    from services.tenant_migration import run as migrate_tenant_ownership
+    migrate_tenant_ownership()
     migrate_json_data()
     from services.user_service import ensure_default_admin
     ensure_default_admin()
@@ -511,10 +517,12 @@ def _setup_middleware(application: FastAPI):
     # 不阻断请求，鉴权仍由 auth.get_current_user 负责。
     from core.tenant import TenantMiddleware
     from core.application import ApplicationMiddleware
+    from core.isolation import IsolationMiddleware
 
     # 注意 Starlette 中间件是 LIFO 链：后 add 的更外层。
     # 所以先 add ApplicationMiddleware（内层）、再 add TenantMiddleware（外层），
     # 这样请求进入时先解析 tenant、再解析 application（依赖 tenant 上下文）。
+    application.add_middleware(IsolationMiddleware)
     application.add_middleware(ApplicationMiddleware)
     application.add_middleware(TenantMiddleware)
 
@@ -562,7 +570,11 @@ def _register_routers(application: FastAPI):
         public_router as invitations_public_router,
     )
 
+    from routes.launch_drafts import router as launch_drafts_router
+    from routes.distribution import router as distribution_router
     for r in [
+        distribution_router,
+        launch_drafts_router,
         registration_router,
         invitations_public_router,  # 挂在 /auth 前缀下，匿名可访问
         invitations_tenant_router,  # 挂在 /tenant 前缀下，需要 admin

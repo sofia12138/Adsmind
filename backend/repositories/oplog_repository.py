@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from core.isolation import tenant_cursor
 from db import get_app_conn
 
 
@@ -13,7 +14,7 @@ def insert(*, username: str, action: str, target_type: str = "",
            before_data: dict | None = None, after_data: dict | None = None,
            status: str = "success", error_message: str | None = None) -> int:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'app_oplog')
         cur.execute(
             """INSERT INTO app_oplog
                (user_id, username, action, target_type, target_id, platform,
@@ -33,7 +34,7 @@ def insert(*, username: str, action: str, target_type: str = "",
 def list_logs(page: int = 1, page_size: int = 30) -> tuple[list[dict], int]:
     """返回 (日志列表, 总数)"""
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'app_oplog')
         cur.execute("SELECT COUNT(*) AS cnt FROM app_oplog")
         total = cur.fetchone()["cnt"]
 

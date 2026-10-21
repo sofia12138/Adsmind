@@ -10,7 +10,7 @@ import { useBizOverview, useBizTopCampaigns } from '@/hooks/use-biz'
 import { useInsightConfig } from '@/hooks/use-insight'
 import type { BizTopCampaign } from '@/services/biz'
 
-const fmtUsd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmtUsd = (n: number | null | undefined) => `$${(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const platformLabel: Record<string, string> = { tiktok: 'TikTok', meta: 'Meta' }
 
 interface ChannelSummary {
@@ -38,11 +38,11 @@ export default function AdsPage() {
   const channels = useMemo<ChannelSummary[]>(() => {
     const list: ChannelSummary[] = []
     if (ovTT) list.push({
-      platform: 'tiktok', spend: ovTT.total_spend, revenue: ovTT.total_revenue,
+      platform: 'tiktok', spend: ovTT.total_spend ?? 0, revenue: ovTT.total_revenue ?? 0,
       roas: ovTT.avg_roas ?? 0, campaigns: topTT?.length ?? 0, topCampaigns: topTT ?? [],
     })
     if (ovMeta) list.push({
-      platform: 'meta', spend: ovMeta.total_spend, revenue: ovMeta.total_revenue,
+      platform: 'meta', spend: ovMeta.total_spend ?? 0, revenue: ovMeta.total_revenue ?? 0,
       roas: ovMeta.avg_roas ?? 0, campaigns: topMeta?.length ?? 0, topCampaigns: topMeta ?? [],
     })
     return list

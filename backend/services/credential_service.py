@@ -35,11 +35,15 @@ def _from_oauth_credentials(tenant_id: int, platform: str, account_id: Optional[
             token = cred_repo.get_access_token(tenant_id, platform, str(account_id))
             if token:
                 return token
+            return None
         # account_id 缺省：取该 tenant + platform 下任意一条凭证
         rows = cred_repo.list_by_tenant(tenant_id, platform=platform)
+        from repositories import biz_account_repository
+        from core.isolation import application_id
+        allowed = {str(r['account_id']) for r in biz_account_repository.list_active(application_id=application_id()) if r['platform'] == platform}
         for row in rows:
             ext_id = row.get("external_id")
-            if not ext_id:
+            if not ext_id or str(ext_id) not in allowed:
                 continue
             token = cred_repo.get_access_token(tenant_id, platform, str(ext_id))
             if token:
@@ -61,7 +65,8 @@ def _from_legacy_biz_accounts(platform: str, account_id: Optional[str]) -> Optio
             if row and row.get("access_token"):
                 return str(row["access_token"])
             return None
-        rows = biz_account_repository.list_by_platform(platform)
+        from core.isolation import application_id
+        rows = biz_account_repository.list_by_platform(platform, application_id=application_id())
         # 优先 is_default=1 的
         rows_sorted = sorted(rows, key=lambda r: -int(r.get("is_default") or 0))
         for r in rows_sorted:
@@ -105,7 +110,9 @@ def resolve_access_token(
     返回:
       明文 access_token；全部级别都找不到时返回 None。
     """
-    tid = int(tenant_id) if tenant_id else INTERNAL_TENANT_ID
+    from core.isolation import tenant_id as current_tenant_id
+    tid = int(tenant_id) if tenant_id is not None else current_tenant_id()
+    _check_account_scope(tid, platform, account_id)
 
     # Layer 1：加密表
     token = _from_oauth_credentials(tid, platform, account_id)
@@ -118,7 +125,8 @@ def resolve_access_token(
         return token
 
     # Layer 3：.env 默认 token
-    return _from_settings_default(platform)
+    from core.isolation import current_scope
+    return _from_settings_default(platform) if tid == INTERNAL_TENANT_ID and not account_id and current_scope.get() is None else None
 
 
 def resolve_token_source(
@@ -134,7 +142,9 @@ def resolve_token_source(
       - ("xxx", "settings_env")       ← .env 兜底
       - (None,  "none")               ← 没找到
     """
-    tid = int(tenant_id) if tenant_id else INTERNAL_TENANT_ID
+    from core.isolation import tenant_id as current_tenant_id
+    tid = int(tenant_id) if tenant_id is not None else current_tenant_id()
+    _check_account_scope(tid, platform, account_id)
 
     token = _from_oauth_credentials(tid, platform, account_id)
     if token:
@@ -144,8 +154,24 @@ def resolve_token_source(
     if token:
         return token, "biz_ad_accounts"
 
-    token = _from_settings_default(platform)
+    from core.isolation import current_scope
+    token = _from_settings_default(platform) if tid == INTERNAL_TENANT_ID and not account_id and current_scope.get() is None else None
     if token:
         return token, "settings_env"
 
     return None, "none"
+
+
+def _check_account_scope(tid, platform, account_id):
+    from core.isolation import current_scope, tenant_id as current_tenant_id
+    from fastapi import HTTPException
+    if tid != current_tenant_id():
+        raise HTTPException(403, '凭证租户不匹配')
+    if account_id:
+        from repositories import biz_account_repository
+        row = biz_account_repository.get_by_platform_account(platform, str(account_id))
+        if not row:
+            raise HTTPException(403, '广告账户不属于当前租户')
+        scope = current_scope.get()
+        if scope and scope.application_id and row.get('application_id') not in (scope.application_id, None if tid == 1 else -1):
+            raise HTTPException(403, '广告账户不属于当前应用')

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 from meta_ads.api.client import MetaClient
+from core.isolation import default_account_id
 from config import get_settings
 
 
 class MetaCampaignService:
     def __init__(self, ad_account_id: str | None = None, client: MetaClient | None = None):
-        self.client = client or MetaClient()
-        self.ad_account_id = ad_account_id or get_settings().meta_ad_account_id
+        self.ad_account_id = ad_account_id or default_account_id("meta")
+        self.client = client or MetaClient(account_id=self.ad_account_id or None)
 
     async def list(self, limit: int = 50, filtering: str | None = None) -> dict:
         params = {

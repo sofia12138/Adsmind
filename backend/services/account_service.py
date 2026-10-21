@@ -24,7 +24,13 @@ def _serialize(row: dict) -> dict:
     """将数据库行序列化为 API 返回格式，凭证脱敏"""
     out = dict(row)
     out["access_token_masked"] = _mask(out.pop("access_token", None))
-    out["app_secret_masked"] = _mask(out.pop("app_secret", None))
+    secret = out.pop('app_secret', None)
+    out['app_secret_masked'] = '已加密保存' if secret and secret.startswith('enc:') else _mask(secret)
+    if not out['access_token_masked']:
+        from repositories import oauth_credential_repository
+        from core.isolation import tenant_id
+        if any(c['external_id'] == row['account_id'] for c in oauth_credential_repository.list_by_tenant(tenant_id(), platform=row['platform'])):
+            out['access_token_masked'] = '已加密保存'
     for k in ("created_at", "updated_at", "last_synced_at"):
         if out.get(k) and isinstance(out[k], datetime):
             out[k] = out[k].strftime("%Y-%m-%d %H:%M:%S")
@@ -65,33 +71,47 @@ async def verify_token(platform: str, access_token: str,
 
 
 async def _verify_tiktok(access_token: str, app_id: str, app_secret: str) -> dict:
-    from tiktok_ads.api.client import TikTokClient, _get_shared_client
+    from tiktok_ads.api.client import _get_shared_client
+    import json
     import httpx
-
-    settings_mod = __import__("config", fromlist=["get_settings"])
-    settings = settings_mod.get_settings()
-
+    from config import get_settings
+    settings = get_settings()
+    if not access_token.strip() or not app_id.strip() or not app_secret.strip():
+        return {'valid': False, 'error': '请填写 Access Token、App ID 和 App Secret', 'accounts': []}
     url = f"{settings.tiktok_api_base_url}/oauth2/advertiser/get/"
     headers = {"Access-Token": access_token, "Content-Type": "application/json"}
-    params = {"app_id": app_id or settings.tiktok_app_id,
-              "secret": app_secret or settings.tiktok_app_secret}
-
+    params = {"app_id": app_id, "secret": app_secret}
     client = _get_shared_client()
-    resp = await client.get(url, headers=headers, params=params)
-    data = resp.json()
-
-    if data.get("code") != 0:
-        return {"valid": False, "error": data.get("message", "Token 验证失败"), "accounts": []}
-
-    adv_list = data.get("data", {}).get("list", [])
-    accounts = []
-    for a in adv_list:
-        accounts.append({
-            "account_id": str(a.get("advertiser_id", "")),
-            "account_name": a.get("advertiser_name", ""),
-            "status": a.get("status", ""),
-        })
-    return {"valid": True, "accounts": accounts}
+    try:
+        resp = await client.get(url, headers=headers, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get('code') != 0:
+            return {'valid': False, 'error': 'TikTok 授权验证失败，请检查凭证及授权范围', 'accounts': []}
+        advertisers = data.get('data', {}).get('list', [])
+        ids = list(dict.fromkeys(str(a['advertiser_id']) for a in advertisers if a.get('advertiser_id')))
+        accounts = []
+        for start in range(0, len(ids), 20):
+            batch = ids[start:start+20]
+            info = await client.get(f'{settings.tiktok_api_base_url}/advertiser/info/', headers=headers,
+                                    params={'advertiser_ids': json.dumps(batch)})
+            info.raise_for_status()
+            payload = info.json()
+            if payload.get('code') != 0:
+                return {'valid': False, 'error': '无法读取 TikTok 账号详情，请检查广告账号的读取权限', 'accounts': []}
+            details = {str(a.get('advertiser_id')): a for a in payload.get('data', {}).get('list', [])}
+            for account_id in batch:
+                detail = details.get(account_id)
+                if not detail or not detail.get('currency') or not detail.get('timezone'):
+                    return {'valid': False, 'error': 'TikTok 未返回完整的账号币种或时区，请检查账号权限后重试', 'accounts': []}
+                accounts.append({'account_id': account_id, 'account_name': detail.get('name') or detail.get('advertiser_name') or account_id,
+                                 'currency': detail['currency'], 'timezone': detail['timezone'], 'status': detail.get('status', '')})
+        return {'valid': True, 'accounts': accounts}
+    except httpx.TimeoutException:
+        return {'valid': False, 'error': '连接 TikTok 超时，请稍后重试', 'accounts': []}
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError, KeyError):
+        # Do not expose transport exceptions: their URL can contain the App Secret.
+        return {'valid': False, 'error': '无法连接 TikTok 或读取账号信息，请稍后重试', 'accounts': []}
 
 
 async def _verify_meta(access_token: str) -> dict:
@@ -121,7 +141,7 @@ async def _verify_meta(access_token: str) -> dict:
 def add_account(*, platform: str, account_id: str, account_name: str = "",
                 access_token: str, app_id: str = "", app_secret: str = "",
                 currency: str = "USD", timezone: str = "UTC",
-                application_id: int | None = None) -> dict:
+                application_id: int | None = None, status: str = 'ACTIVE') -> dict:
     """新增广告账号。
 
     `application_id` 阶段 4 X3-filter：传入时新账号自动绑定到该应用。
@@ -129,8 +149,15 @@ def add_account(*, platform: str, account_id: str, account_name: str = "",
     """
     if platform not in ("tiktok", "meta"):
         raise ValueError("platform 必须为 tiktok 或 meta")
-    if not account_id or not access_token:
-        raise ValueError("account_id 和 access_token 不能为空")
+    from core.isolation import tenant_id
+    from repositories import oauth_credential_repository
+    from core import crypto
+    import base64
+    if not account_id:
+        raise ValueError('account_id 不能为空')
+    if not access_token and not oauth_credential_repository.get_access_token(tenant_id(), platform, account_id):
+        raise ValueError('请提供有效凭证')
+    encrypted_secret = ('enc:'+base64.b64encode(crypto.encrypt(app_secret, aad=f'{tenant_id()}:{platform}:{account_id}:secret'.encode())).decode()) if app_secret else ''
 
     existing = biz_account_repository.list_by_platform(platform)
     is_default = 1 if len(existing) == 0 else 0
@@ -139,15 +166,17 @@ def add_account(*, platform: str, account_id: str, account_name: str = "",
         platform=platform,
         account_id=account_id,
         account_name=account_name,
-        access_token=access_token,
+        access_token='',
         app_id=app_id,
-        app_secret=app_secret,
+        app_secret=encrypted_secret,
         currency=currency,
         timezone=timezone,
-        status="ACTIVE",
+        status=status,
         is_default=is_default,
     )
     row = biz_account_repository.get_by_platform_account(platform, account_id)
+    if access_token:
+        oauth_credential_repository.upsert(tenant_id=tenant_id(), platform=platform, external_id=account_id, access_token=access_token)
 
     # 创建后立即绑定到目标应用（如果传了）
     if row and application_id is not None:
@@ -162,6 +191,19 @@ def add_account(*, platform: str, account_id: str, account_name: str = "",
 
 
 def update_account(row_id: int, **fields) -> dict | None:
+    row = biz_account_repository.get_by_id(row_id)
+    if not row:
+        return None
+    from core.isolation import tenant_id
+    from repositories import oauth_credential_repository
+    token = fields.pop('access_token', None)
+    if token:
+        oauth_credential_repository.upsert(tenant_id=tenant_id(), platform=row['platform'], external_id=row['account_id'], access_token=token)
+        fields['access_token'] = ''
+    if fields.get('app_secret'):
+        from core import crypto
+        import base64
+        fields['app_secret'] = 'enc:'+base64.b64encode(crypto.encrypt(fields['app_secret'], aad=f"{tenant_id()}:{row['platform']}:{row['account_id']}:secret".encode())).decode()
     biz_account_repository.update_by_id(row_id, **fields)
     row = biz_account_repository.get_by_id(row_id)
     return _serialize(row) if row else None

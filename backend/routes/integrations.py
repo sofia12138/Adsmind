@@ -16,7 +16,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
 
-from auth import User, get_current_user
+from auth import User, get_current_user, require_admin
+from pydantic import BaseModel, Field
 from core.tenant import TenantCtx, get_current_tenant
 from integrations.base import get_oauth_flow, supported_oauth_platforms
 from integrations.oauth_base import OAuthError, build_state, default_redirect_uri, verify_state
@@ -124,6 +125,12 @@ def _is_local_request(request: Request | None) -> bool:
 
 
 def _mock_mode_allowed(platform: str, request: Request | None, force_mock: bool = False) -> bool:
+    if platform in ('tiktok', 'meta'):
+        return False
+    from core.isolation import current_scope
+    scope = current_scope.get()
+    if scope is None or scope.tenant_id != 1 or not _is_local_request(request):
+        return False
     """未配置真实凭证 → mock；或本地冒烟显式 force_mock=1。"""
     if not _platform_credentials_configured(platform):
         return True
@@ -147,6 +154,16 @@ async def oauth_start(
       - 平台未配置 app_id/secret 时返回 `mock_authorize_url`，进入演示流程
     """
     from core.application import get_application_by_id
+
+    if platform in ('tiktok', 'meta'):
+        require_admin(_)
+        from core.isolation import application_id as scoped_application_id
+        if application_id is not None and application_id != scoped_application_id():
+            raise HTTPException(403, '请选择当前应用进行授权')
+        if redirect_uri is not None and redirect_uri != default_redirect_uri(platform):
+            raise HTTPException(400, '授权回调地址由服务端配置')
+        from services.platform_authorization import start
+        return start(_.username, platform)
 
     final_redirect = redirect_uri or default_redirect_uri(platform)
     extra: dict = {"r": final_redirect}
@@ -191,6 +208,8 @@ async def oauth_start(
             "hint": f"{platform} 平台未配置真实 app_id/secret，正在使用 mock 演示模式",
         }
 
+    if not _platform_credentials_configured(platform):
+        raise HTTPException(503, '平台授权应用尚未配置，请联系系统管理员')
     try:
         flow = get_oauth_flow(platform)
     except ValueError as e:
@@ -210,14 +229,21 @@ async def oauth_start(
 async def oauth_callback(
     platform: str,
     request: Request,
-    code: str = Query(..., description="平台返回的授权码"),
+    code: Optional[str] = Query(None, description="平台返回的授权码"),
     state: str = Query(..., description="start 阶段生成的签名 state"),
+    auth_code: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
 ):
     """OAuth 回调：换 token、加密落库、同步账户列表到 biz_ad_accounts。
 
     注意此端点**不依赖** `get_current_user`：用户已被重定向到平台站点后跳回，
     身份从 state HMAC 中还原。
     """
+    if platform in ('tiktok', 'meta'):
+        from services.platform_authorization import callback
+        from fastapi.responses import RedirectResponse
+        target = await callback(state, (auth_code or code) if platform == 'tiktok' else code, denied=bool(error), platform=platform)
+        return RedirectResponse(target, status_code=303, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})
     try:
         payload = verify_state(state)
     except OAuthError as e:
@@ -312,6 +338,23 @@ async def oauth_callback(
     </body></html>
     """
     return HTMLResponse(content=html)
+
+
+class FinishPlatformAuthorization(BaseModel):
+    account_id: str = Field(min_length=1, max_length=128)
+
+
+@router.get('/{platform}/authorization/{session_id}')
+async def get_platform_authorization(platform: str, session_id: str, user=Depends(require_admin)):
+    from services.platform_authorization import details
+    from fastapi.responses import JSONResponse
+    return JSONResponse(details(session_id, user.username, platform), headers={'Cache-Control': 'no-store'})
+
+
+@router.post('/{platform}/authorization/{session_id}')
+async def finish_platform_authorization(platform: str, session_id: str, req: FinishPlatformAuthorization, user=Depends(require_admin)):
+    from services.platform_authorization import finish
+    return finish(session_id, req.account_id, user.username, platform)
 
 
 # ── Mock 模式（无真实平台凭证时演示用） ──────────────────────────

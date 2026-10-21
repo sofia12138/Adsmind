@@ -31,6 +31,7 @@ import {
   Layers,
 } from 'lucide-react'
 import type { MenuItem } from '@/types/menu'
+import { cutflowUrl } from '@/services/cutflow'
 
 export const menuConfig: MenuItem[] = [
   { id: 'dashboard', label: '首页概览', icon: LayoutDashboard, path: '/dashboard', panelKey: 'dashboard' },
@@ -44,6 +45,7 @@ export const menuConfig: MenuItem[] = [
       { id: 'ads', label: '广告数据', icon: BarChart3, path: '/ads', panelKey: 'ads_data' },
       { id: 'tiktok-console', label: 'TikTok操作台', icon: Monitor, path: '/console/tiktok', panelKey: 'tiktok_console' },
       { id: 'meta-console', label: 'Meta操作台', icon: Monitor, path: '/console/meta', panelKey: 'meta_console' },
+      { id: 'ads-drafts', label: '广告草稿', icon: PlusCircle, path: '/ads/drafts', panelKey: 'ad_create' },
       { id: 'ads-create', label: '新建广告', icon: PlusCircle, path: '/ads/create', panelKey: 'ad_create' },
       { id: 'templates', label: '模板管理', icon: FileText, path: '/templates', panelKey: 'template_mgmt' },
     ],
@@ -54,9 +56,20 @@ export const menuConfig: MenuItem[] = [
     icon: Image,
     children: [
       { id: 'creatives', label: '素材库', icon: FolderOpen, path: '/creatives', panelKey: 'creatives' },
+      { id: 'auto-edit', label: '自动剪辑', icon: Film, path: '/auto-edit', externalUrl: cutflowUrl, panelKey: 'creatives' },
       { id: 'creative-analysis', label: '素材分析', icon: LineChart, path: '/creative-analysis', panelKey: 'creative_analysis' },
       { id: 'designer-performance', label: '设计师人效', icon: UserCheck, path: '/designer-performance', panelKey: 'designer_performance', pluginKey: 'designer_performance' },
       { id: 'tiktok-materials', label: 'TikTok素材上传', icon: Upload, path: '/tiktok-materials', panelKey: 'tiktok_materials' },
+    ],
+  },
+  {
+    id: 'distribution',
+    label: '发行中心',
+    icon: Film,
+    children: [
+      { id: 'youtube-tasks', label: 'YouTube 发行', icon: Film, path: '/distribution/youtube', panelKey: 'creatives' },
+      { id: 'youtube-records', label: '发行记录', icon: ClipboardList, path: '/distribution/records', panelKey: 'creatives' },
+      { id: 'youtube-channels', label: '频道管理', icon: Users, path: '/distribution/channels', panelKey: 'creatives' },
     ],
   },
   {
@@ -100,7 +113,7 @@ export const menuConfig: MenuItem[] = [
       { id: 'team', label: '团队成员', icon: Users, path: '/team', panelKey: 'team' },
       { id: 'data-source', label: '数据源配置', icon: Database, path: '/data-source', panelKey: 'data_source' },
       { id: 'user-mgmt', label: '用户权限', icon: Users, path: '/user-mgmt', panelKey: 'user_mgmt' },
-      { id: 'upgrade-requests', label: '套餐升级审批', icon: Crown, path: '/upgrade-requests', panelKey: 'user_mgmt' },
+      { id: 'upgrade-requests', label: '套餐升级审批', icon: Crown, path: '/upgrade-requests', panelKey: 'user_mgmt', internalOnly: true },
       { id: 'role-perm', label: '角色权限管理', icon: Shield, path: '/role-perm', panelKey: 'role_perm' },
       { id: 'insight-config', label: 'ROI 阈值配置', icon: SlidersHorizontal, path: '/insight-config', panelKey: 'insight_config' },
       { id: 'oplog', label: '操作日志', icon: ClipboardList, path: '/oplog', panelKey: 'oplog' },

@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { PageHeader } from '@/components/common/PageHeader'
 import { StatCard } from '@/components/common/StatCard'
@@ -12,10 +12,13 @@ import {
   Loader2, AlertCircle, AlertTriangle, ArrowUpDown, ExternalLink, X,
   Play, Pause, Pencil, Search, RefreshCw,
 } from 'lucide-react'
-import { useBizOverview, useBizCampaigns, useBizAdgroups, useBizAds } from '@/hooks/use-biz'
+import { useBizOverview } from '@/hooks/use-biz'
+import { useAuth } from '@/contexts/AuthContext'
+import { fetchAdAccounts } from '@/services/accounts-mgmt'
+import { readConsoleState, statusLabel } from './console-state'
 import { useInsightConfig } from '@/hooks/use-insight'
 import {
-  fetchCampaignAgg, fetchAdgroupAgg, fetchAdAgg,
+  fetchConsolePage, fetchConsoleChildren,
   updateBizEntityStatus,
   type AggRow, type AggParams,
 } from '@/services/biz'
@@ -55,7 +58,7 @@ function isMissingAttribution(row: Pick<AggRow, 'total_spend' | 'attribution_spe
 // Column defs for hierarchical table (aggregated data)
 // ---------------------------------------------------------------------------
 
-type SortKey = 'total_spend' | 'total_revenue' | 'roas' | 'ctr' | 'cpc' | 'total_registrations' | 'total_installs' | 'total_clicks' | 'total_impressions' | 'total_conversions' | 'cpi' | 'cpa' | 'cpm'
+
 
 interface ColDef {
   key: string
@@ -171,14 +174,6 @@ function isMetaActive(status: string) { return status === 'ACTIVE' }
 function isEnabled(platform: string, status: string) {
   return platform === 'tiktok' ? isTikTokEnabled(status) : isMetaActive(status)
 }
-function statusLabel(platform: string, status: string): { text: string; active: boolean } {
-  const active = isEnabled(platform, status)
-  if (active) return { text: '投放中', active: true }
-  if (platform === 'meta' && (status === 'CAMPAIGN_PAUSED' || status === 'ADSET_PAUSED'))
-    return { text: '父级暂停', active: false }
-  return { text: '已暂停', active: false }
-}
-
 // ---------------------------------------------------------------------------
 // Level styling
 // ---------------------------------------------------------------------------
@@ -237,10 +232,34 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
   const { show: toast, Toast } = useToast()
 
   // ── State ──
-  const [dateRange, setDateRange] = useState<DateRange>(() => getDefaultDateRange('all'))
-  const [searchFilter, setSearchFilter] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('total_spend')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const { currentApplication } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = readConsoleState(searchParams, getDefaultDateRange('7d'))
+  const { dateRange, accountId, search: searchFilter, sortKey, sortDir, page } = filters
+  const [searchText, setSearchText] = useState(searchFilter)
+  useEffect(() => setSearchText(searchFilter), [searchFilter])
+  const patchFilters = useCallback((patch: Record<string, string | null>) => {
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous)
+      const range = readConsoleState(previous, getDefaultDateRange('7d')).dateRange
+      next.set('start_date', range.startDate)
+      next.set('end_date', range.endDate)
+      for (const [key, value] of Object.entries(patch)) {
+        if (value == null || value === '') next.delete(key)
+        else next.set(key, value)
+      }
+      return next
+    })
+  }, [setSearchParams])
+  const scopeKey = `${platform}:${currentApplication?.id}:${dateRange.startDate}:${dateRange.endDate}:${accountId}:${sortKey}:${sortDir}:${searchFilter}:${page}`
+  const requestScope = useRef(scopeKey)
+  const epoch = useRef(0)
+  if (requestScope.current !== scopeKey) {
+    requestScope.current = scopeKey
+    epoch.current++
+  }
+  const [childErrors, setChildErrors] = useState<Record<string, string>>({})
+  const [batchResults, setBatchResults] = useState<{ id: string; error?: string }[]>([])
 
   const [visibleCols, setVisibleCols] = useState<string[]>(() => loadVisibleCols(platform))
   const [showColPicker, setShowColPicker] = useState(false)
@@ -264,80 +283,68 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
     saveVisibleCols(platform, cols)
   }, [platform])
 
-  const handleDateChange = useCallback((range: DateRange) => {
-    setDateRange(range)
-    // clear expand state and cache on date change
+  const clearChildren = useCallback(() => {
+    epoch.current++
     setExpandedCampaigns(new Set())
     setExpandedAdsets(new Set())
     setAdsetCache({})
     setAdCache({})
+    setLoadingIds(new Set())
+    setErrorIds(new Set())
+    setChildErrors({})
+    setSelectedIds(new Set())
+    setBudgetEdit(null)
   }, [])
+  useEffect(() => {
+    clearChildren()
+    setBatchResults([])
+  }, [scopeKey, clearChildren])
 
-  // ── Data queries ──
-  const { data: overview, isLoading: ovLoading } = useBizOverview({ ...dateRange, platform })
+  const handleDateChange = useCallback((range: DateRange) => {
+    patchFilters({ start_date: range.startDate, end_date: range.endDate, page: null })
+  }, [patchFilters])
 
-  const aggParams: AggParams = useMemo(() => ({
-    startDate: dateRange.startDate,
-    endDate: dateRange.endDate,
-    platform,
-    order_by: sortKey,
-    order_dir: sortDir,
-  }), [dateRange, platform, sortKey, sortDir])
-
-  const { data: campaignRows, isLoading: campLoading, isError: campError, refetch: refetchCampaigns } = useQuery({
-    queryKey: ['biz', 'campaign-agg', aggParams],
-    queryFn: () => fetchCampaignAgg(aggParams),
+  const { data: accountsResponse, error: accountsError } = useQuery({
+    queryKey: ['ad-accounts', platform, currentApplication?.id],
+    queryFn: () => fetchAdAccounts(platform),
   })
-
+  const accounts = accountsResponse?.data ?? []
+  const selectedAccount = accounts.find(a => a.account_id === accountId)
+  const { data: overview, isLoading: ovLoading, error: overviewError } = useBizOverview({ ...dateRange, platform, account_id: accountId || undefined })
+  const aggParams: AggParams = useMemo(() => ({
+    startDate: dateRange.startDate, endDate: dateRange.endDate,
+    platform, account_id: accountId || undefined, order_by: sortKey, order_dir: sortDir,
+  }), [dateRange.startDate, dateRange.endDate, platform, accountId, sortKey, sortDir])
+  const { data: campaignPage, isLoading: campLoading, isError: campError, error: campaignError } = useQuery({
+    queryKey: ['biz', 'console', currentApplication?.id, aggParams, searchFilter, page],
+    queryFn: () => fetchConsolePage('campaign', { ...aggParams, q: searchFilter, page, page_size: 50 }),
+  })
+  const campaignRows = campaignPage?.list
   const { data: insightCfg } = useInsightConfig()
-  const { data: bizCampaigns } = useBizCampaigns(platform)
-  const { data: bizAdgroups } = useBizAdgroups(platform)
-  const { data: bizAdsData } = useBizAds(platform)
-
-  const campaignMetaMap = useMemo(() => {
-    if (!bizCampaigns) return undefined
-    const map = new Map<string, EntityMeta>()
-    for (const c of bizCampaigns) {
-      let budget = 0
-      if (c.raw_json) {
-        const raw = c.raw_json as Record<string, unknown>
-        budget = Number(raw.budget ?? raw.daily_budget ?? 0)
-      }
-      map.set(c.campaign_id, { status: c.status || 'UNKNOWN', budget, accountId: c.account_id })
-    }
-    return map
-  }, [bizCampaigns])
-
-  const adgroupMetaMap = useMemo(() => {
-    if (!bizAdgroups) return undefined
-    const map = new Map<string, EntityMeta>()
-    for (const ag of bizAdgroups) {
-      let budget = 0
-      if (ag.raw_json) {
-        const raw = ag.raw_json as Record<string, unknown>
-        budget = Number(raw.budget ?? raw.daily_budget ?? 0)
-      }
-      map.set(ag.adgroup_id, { status: ag.status || 'UNKNOWN', budget, accountId: ag.account_id })
-    }
-    return map
-  }, [bizAdgroups])
-
-  const adMetaMap = useMemo(() => {
-    if (!bizAdsData) return undefined
-    const map = new Map<string, EntityMeta>()
-    for (const ad of bizAdsData) {
-      map.set(ad.ad_id, { status: ad.status || 'UNKNOWN', budget: 0, accountId: ad.account_id })
-    }
-    return map
-  }, [bizAdsData])
+  function metaMap(rows: AggRow[], key: 'campaign_id' | 'adgroup_id' | 'ad_id') {
+    return new Map(rows.map(row => [row[key] || '', { status: row.status || 'UNKNOWN', budget: row.budget ?? 0, accountId: row.account_id }]))
+  }
+  const campaignMetaMap = metaMap(campaignRows ?? [], 'campaign_id')
+  const adgroupMetaMap = metaMap(Object.values(adsetCache).flat(), 'adgroup_id')
+  const adMetaMap = metaMap(Object.values(adCache).flat(), 'ad_id')
 
   const refreshAll = () => {
-    queryClient.invalidateQueries({ queryKey: ['biz', 'campaigns', platform] })
-    queryClient.invalidateQueries({ queryKey: ['biz', 'adgroups', platform] })
-    queryClient.invalidateQueries({ queryKey: ['biz', 'ads', platform] })
-    queryClient.invalidateQueries({ queryKey: ['sync-status-all'] })
-    refetchCampaigns()
+    clearChildren()
+    void queryClient.invalidateQueries({ queryKey: ['biz'] })
+    void queryClient.invalidateQueries({ queryKey: ['sync-status-all'] })
   }
+  const lastSync = useRef<string | null>(null)
+  const { data: syncStatus } = useQuery({
+    queryKey: ['sync-status-all'], queryFn: fetchSyncStatus, refetchInterval: 15_000,
+  })
+  useEffect(() => {
+    const stamp = JSON.stringify(Object.values(syncStatus ?? {}).map(s => s.last_synced_at))
+    if (lastSync.current !== null && lastSync.current !== stamp) {
+      clearChildren()
+      void queryClient.invalidateQueries({ queryKey: ['biz'] })
+    }
+    lastSync.current = stamp
+  }, [syncStatus, clearChildren, queryClient])
 
   // 页面加载时：若结构数据超过 15 分钟未同步，静默触发一次同步
   useEffect(() => {
@@ -358,13 +365,13 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
         // 静默失败，不影响页面使用
       }
     }
-    autoSyncIfStale()
+    if (accounts.length) void autoSyncIfStale()
     return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platform])
+  }, [platform, accounts.length])
 
   // ── Expand handlers ──
   const toggleCampaign = useCallback(async (campaignId: string) => {
+    const requestEpoch = epoch.current
     setExpandedCampaigns(prev => {
       const next = new Set(prev)
       if (next.has(campaignId)) {
@@ -387,23 +394,28 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
       setLoadingIds(prev => new Set(prev).add(campaignId))
       setErrorIds(prev => { const n = new Set(prev); n.delete(campaignId); return n })
       try {
-        const rows = await fetchAdgroupAgg({
+        const rows = await fetchConsoleChildren('adgroup', {
           ...aggParams,
           campaign_id: campaignId,
         })
-        setAdsetCache(prev => ({ ...prev, [campaignId]: rows }))
-      } catch {
-        setErrorIds(prev => new Set(prev).add(campaignId))
+        if (requestEpoch === epoch.current) setAdsetCache(prev => ({ ...prev, [campaignId]: rows }))
+      } catch (error) {
+        if (requestEpoch === epoch.current) {
+          setErrorIds(prev => new Set(prev).add(campaignId))
+          setChildErrors(prev => ({ ...prev, [campaignId]: error instanceof Error ? error.message : '加载失败' }))
+        }
       } finally {
-        setLoadingIds(prev => { const n = new Set(prev); n.delete(campaignId); return n })
+        if (requestEpoch === epoch.current) setLoadingIds(prev => { const n = new Set(prev); n.delete(campaignId); return n })
       }
     }
   }, [aggParams, adsetCache])
 
   const toggleAdset = useCallback(async (adsetId: string) => {
+    const requestEpoch = epoch.current
     setExpandedAdsets(prev => {
       const next = new Set(prev)
-      next.has(adsetId) ? next.delete(adsetId) : next.add(adsetId)
+      if (next.has(adsetId)) next.delete(adsetId)
+      else next.add(adsetId)
       return next
     })
 
@@ -411,34 +423,41 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
       setLoadingIds(prev => new Set(prev).add(adsetId))
       setErrorIds(prev => { const n = new Set(prev); n.delete(adsetId); return n })
       try {
-        const rows = await fetchAdAgg({
+        const rows = await fetchConsoleChildren('ad', {
           ...aggParams,
           adgroup_id: adsetId,
         })
-        setAdCache(prev => ({ ...prev, [adsetId]: rows }))
-      } catch {
-        setErrorIds(prev => new Set(prev).add(adsetId))
+        if (requestEpoch === epoch.current) setAdCache(prev => ({ ...prev, [adsetId]: rows }))
+      } catch (error) {
+        if (requestEpoch === epoch.current) {
+          setErrorIds(prev => new Set(prev).add(adsetId))
+          setChildErrors(prev => ({ ...prev, [adsetId]: error instanceof Error ? error.message : '加载失败' }))
+        }
       } finally {
-        setLoadingIds(prev => { const n = new Set(prev); n.delete(adsetId); return n })
+        if (requestEpoch === epoch.current) setLoadingIds(prev => { const n = new Set(prev); n.delete(adsetId); return n })
       }
     }
   }, [aggParams, adCache])
 
   const retryLoad = useCallback(async (id: string, type: 'campaign' | 'adset') => {
+    const requestEpoch = epoch.current
     setLoadingIds(prev => new Set(prev).add(id))
     setErrorIds(prev => { const n = new Set(prev); n.delete(id); return n })
     try {
       if (type === 'campaign') {
-        const rows = await fetchAdgroupAgg({ ...aggParams, campaign_id: id })
-        setAdsetCache(prev => ({ ...prev, [id]: rows }))
+        const rows = await fetchConsoleChildren('adgroup', { ...aggParams, campaign_id: id })
+        if (requestEpoch === epoch.current) setAdsetCache(prev => ({ ...prev, [id]: rows }))
       } else {
-        const rows = await fetchAdAgg({ ...aggParams, adgroup_id: id })
-        setAdCache(prev => ({ ...prev, [id]: rows }))
+        const rows = await fetchConsoleChildren('ad', { ...aggParams, adgroup_id: id })
+        if (requestEpoch === epoch.current) setAdCache(prev => ({ ...prev, [id]: rows }))
       }
-    } catch {
-      setErrorIds(prev => new Set(prev).add(id))
+    } catch (error) {
+      if (requestEpoch === epoch.current) {
+        setErrorIds(prev => new Set(prev).add(id))
+        setChildErrors(prev => ({ ...prev, [id]: error instanceof Error ? error.message : '加载失败' }))
+      }
     } finally {
-      setLoadingIds(prev => { const n = new Set(prev); n.delete(id); return n })
+      if (requestEpoch === epoch.current) setLoadingIds(prev => { const n = new Set(prev); n.delete(id); return n })
     }
   }, [aggParams])
 
@@ -467,31 +486,44 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
   const batchMutation = useMutation({
     mutationFn: async (newStatus: string) => {
       const ids = Array.from(selectedIds)
-      if (platform === 'tiktok') {
-        const byAccount = new Map<string, string[]>()
-        for (const id of ids) {
-          const acct = campaignMetaMap?.get(id)?.accountId ?? ''
-          const list = byAccount.get(acct) ?? []
-          list.push(id)
-          byAccount.set(acct, list)
-        }
-        const results = await Promise.allSettled(
-          Array.from(byAccount.entries()).map(([acctId, cids]) =>
-            updateTikTokCampaignStatus(cids, newStatus, acctId || undefined)),
-        )
-        const failed = results.filter(r => r.status === 'rejected')
-        if (failed.length > 0) throw new Error(`${failed.length} 个账户操作失败`)
-      } else {
-        const results = await Promise.allSettled(
-          ids.map(id => updateMetaCampaignStatus(id, newStatus, campaignMetaMap?.get(id)?.accountId)),
-        )
-        const failed = results.filter(r => r.status === 'rejected')
-        if (failed.length > 0) throw new Error(`${failed.length} 个操作失败`)
+      const groups = new Map<string, string[]>()
+      for (const id of ids) {
+        const account = campaignMetaMap.get(id)?.accountId
+        if (!account) throw new Error('所选广告缺少账户信息，请刷新后重试')
+        const group = groups.get(account) ?? []
+        group.push(id)
+        groups.set(account, group)
       }
-      return { message: 'ok' }
+      const results: { id: string; error?: string }[] = []
+      for (const [account, group] of groups) {
+        if (platform === 'tiktok') {
+          try {
+            await updateTikTokCampaignStatus(group, newStatus, account)
+            results.push(...group.map(id => ({ id })))
+          } catch (error) {
+            results.push(...group.map(id => ({ id, error: error instanceof Error ? error.message : '操作失败' })))
+          }
+        } else {
+          for (const id of group) {
+            try { await updateMetaCampaignStatus(id, newStatus, account); results.push({ id }) }
+            catch (error) { results.push({ id, error: error instanceof Error ? error.message : '操作失败' }) }
+          }
+        }
+      }
+      for (const item of results.filter(item => !item.error)) {
+        try { await updateBizEntityStatus(platform, 'campaign', item.id, newStatus) }
+        catch { /* Platform change succeeded; do not repeat it because the local refresh failed. */ }
+      }
+      return results
     },
-    onSuccess: () => { toast(`批量操作成功 (${selectedIds.size} 个)`, 'success'); setSelectedIds(new Set()); refreshAll() },
-    onError: (err: Error) => { toast(`批量操作失败: ${err.message}`, 'error') },
+    onSuccess: results => {
+      const failed = results.filter(item => item.error)
+      refreshAll()
+      setBatchResults(results)
+      setSelectedIds(new Set(failed.map(item => item.id)))
+      toast(`批量操作：成功 ${results.length - failed.length} 个，失败 ${failed.length} 个`, failed.length ? 'error' : 'success')
+    },
+    onError: (err: Error) => toast(`批量操作失败: ${err.message}`, 'error'),
   })
 
   // Budget edit: supports campaign and adgroup (TikTok)
@@ -512,13 +544,7 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
   const roiThreshold = insightCfg?.roi?.low ?? 1.5
   const activeCols = AGG_COLUMNS.filter(c => visibleCols.includes(c.key))
 
-  // Filter campaigns by search
-  const filteredCampaigns = useMemo(() => {
-    if (!campaignRows) return []
-    if (!searchFilter) return campaignRows
-    const q = searchFilter.toLowerCase()
-    return campaignRows.filter(r => (r.campaign_name || '').toLowerCase().includes(q))
-  }, [campaignRows, searchFilter])
+  const filteredCampaigns = useMemo(() => campaignRows ?? [], [campaignRows])
 
   // Build flat rows with inline status rows
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -578,14 +604,12 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
   }, [allSelected, uniqueCampaignIds])
 
   const toggleSelect = useCallback((id: string) => {
-    setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+    setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
   }, [])
 
   const handleSort = useCallback((key: string) => {
-    const k = key as SortKey
-    if (sortKey === k) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
-    else { setSortKey(k); setSortDir('desc') }
-  }, [sortKey])
+    patchFilters({ sort: key, dir: sortKey === key && sortDir === 'desc' ? 'asc' : 'desc', page: null })
+  }, [sortKey, sortDir, patchFilters])
 
   function toggleCol(key: string) {
     const next = visibleCols.includes(key) ? visibleCols.filter(k => k !== key) : [...visibleCols, key]
@@ -610,7 +634,7 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
 
   function handleToggleStatus(entityId: string, entityType: RowLevel) {
     const meta = getEntityMeta(entityId, entityType)
-    if (!meta) return
+    if (!meta || !meta.accountId || !statusLabel(platform, meta.status).canToggle) return
     setActionLoading(entityId)
     const active = isEnabled(platform, meta.status)
     const newStatus = platform === 'tiktok'
@@ -642,7 +666,7 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
     const isThisLoading = actionLoading === entityId
     return (
       <div className="flex items-center gap-1">
-        <button onClick={() => handleToggleStatus(entityId, entityType)} disabled={isThisLoading || toggleMutation.isPending}
+        <button onClick={() => handleToggleStatus(entityId, entityType)} disabled={isThisLoading || toggleMutation.isPending || !meta.accountId || !statusLabel(platform, meta.status).canToggle}
           title={active ? '暂停' : '启动'}
           className={`p-1 rounded-md transition disabled:opacity-40 ${active ? 'text-amber-500 hover:bg-amber-50' : 'text-green-500 hover:bg-green-50'}`}>
           {isThisLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : active ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
@@ -688,9 +712,19 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
 
       {/* Time filter */}
       <FilterBar>
-        <DateRangeFilter value={dateRange} onChange={handleDateChange} />
+        <DateRangeFilter key={`${dateRange.startDate}:${dateRange.endDate}`} value={dateRange} onChange={handleDateChange} />
+        <label className="text-xs text-gray-600 flex items-center gap-2">广告账户
+          <select aria-label="广告账户" value={accountId} onChange={e => patchFilters({ account_id: e.target.value, page: null })} className="border border-gray-200 rounded-lg px-3 py-1.5 max-w-72 bg-white">
+            <option value="">全部可查询账户</option>
+            {accountId && !selectedAccount && <option value={accountId}>账户 {accountId}</option>}
+            {accounts.map(account => <option key={account.id} value={account.account_id}>{account.account_name || account.account_id} · {account.account_id}</option>)}
+          </select>
+        </label>
+        <button onClick={refreshAll} className="text-xs text-blue-600 flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" />刷新数据</button>
       </FilterBar>
 
+      {selectedAccount && <p className="text-xs text-gray-500">当前账户：{selectedAccount.account_name || selectedAccount.account_id} · {selectedAccount.currency} · {selectedAccount.timezone}</p>}
+      {(accountsError || overviewError) && <div role="alert" className="text-sm text-red-600">{(accountsError || overviewError)?.message}</div>}
       {/* KPIs */}
       <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
         {kpis.map(k => (
@@ -735,19 +769,22 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
 
       {/* Controls bar */}
       <div className="bg-white rounded-xl border border-[var(--color-card-border)] shadow-[var(--shadow-card)] px-4 py-2.5">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Total count */}
-          <span className="text-xs text-gray-400 shrink-0 tabular-nums">共 {filteredCampaigns.length} 个 Campaign</span>
+          <span className="text-xs text-gray-400 shrink-0 tabular-nums">共 {campaignPage?.total ?? 0} 个 Campaign</span>
           <div className="flex-1" />
 
           {/* Search */}
           <div className="relative shrink-0">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-            <input value={searchFilter} onChange={e => setSearchFilter(e.target.value)}
-              placeholder="搜索 Campaign 名称…"
+            <input aria-label="搜索广告系列" value={searchText} onChange={e => setSearchText(e.target.value)} maxLength={200}
+              onKeyDown={e => { if (e.key === 'Enter') patchFilters({ q: searchText.trim(), page: null }) }}
+              placeholder="系列名称或 ID，回车搜索…"
               className="pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-xs w-48 bg-gray-50/50 focus:bg-white focus:outline-none focus:border-blue-300 transition" />
           </div>
 
+          <button onClick={() => patchFilters({ q: searchText.trim(), page: null })} className="text-xs text-blue-600">搜索</button>
+          {searchFilter && <button onClick={() => patchFilters({ q: null, page: null })} className="text-xs text-gray-500">清除搜索</button>}
           {/* Column picker */}
           <div className="relative shrink-0">
             <button onClick={() => setShowColPicker(!showColPicker)}
@@ -807,7 +844,8 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
       {/* Error state */}
       {campError && (
         <div className="flex flex-col items-center justify-center py-24 text-red-400">
-          <AlertCircle className="w-8 h-8 mb-2" /><p className="text-sm font-medium">数据加载失败</p>
+          <AlertCircle className="w-8 h-8 mb-2" /><p className="text-sm font-medium">{campaignError instanceof Error ? campaignError.message : '数据加载失败'}</p>
+          <button onClick={refreshAll} className="mt-3 text-sm underline">重新加载</button>
         </div>
       )}
 
@@ -840,7 +878,7 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
               </thead>
               <tbody>
                 {flatRows.length === 0 ? (
-                  <tr><td colSpan={activeCols.length + 4} className="px-4 py-14 text-center text-gray-300 text-sm">暂无数据</td></tr>
+                  <tr><td colSpan={activeCols.length + 4} className="px-4 py-14 text-center text-gray-400 text-sm">{searchFilter ? '没有符合搜索条件的广告系列，请修改搜索或日期范围。' : accounts.length === 0 ? '尚未配置广告账户，请先在账户管理中接入。' : '所选范围暂无数据，请检查日期或同步状态。'}</td></tr>
                 ) : (
                   flatRows.map((row, idx) => {
                     if (row.kind === 'status') {
@@ -862,7 +900,7 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
                           <tr key={`s-error-${row.parentId}`} className="bg-red-50/50">
                             <td colSpan={activeCols.length + 4} className="py-3 text-center">
                               <span className="inline-flex items-center gap-2 text-xs text-red-500">
-                                <AlertCircle className="w-3.5 h-3.5" /> 加载失败
+                                <AlertCircle className="w-3.5 h-3.5" /> {childErrors[row.parentId] || '加载失败'}
                                 <button onClick={() => retryLoad(row.parentId, row.parentType)}
                                   className="ml-2 inline-flex items-center gap-1 px-2 py-1 rounded bg-red-100 text-red-600 hover:bg-red-200 transition text-[11px] font-medium">
                                   <RefreshCw className="w-3 h-3" /> 重试
@@ -986,6 +1024,16 @@ export function AdConsole({ platform, title }: AdConsoleProps) {
         </div>
       )}
 
+      {campaignPage && campaignPage.total > 50 && <div className="flex items-center justify-end gap-3 text-xs text-gray-600">
+        <span>第 {campaignPage.page} / {Math.ceil(campaignPage.total / 50)} 页 · 每页 50 条</span>
+        <button disabled={campaignPage.page <= 1} onClick={() => patchFilters({ page: String(campaignPage.page - 1) })} className="px-3 py-1.5 border rounded disabled:opacity-40">上一页</button>
+        <button disabled={campaignPage.page * 50 >= campaignPage.total} onClick={() => patchFilters({ page: String(campaignPage.page + 1) })} className="px-3 py-1.5 border rounded disabled:opacity-40">下一页</button>
+      </div>}
+      {batchResults.length > 0 && <div role="status" className="border rounded-xl p-4 text-xs space-y-1">
+        <p className="font-medium">批量操作结果：成功 {batchResults.filter(r => !r.error).length} 个，失败 {batchResults.filter(r => r.error).length} 个</p>
+        {batchResults.filter(r => r.error).map(result => <p key={result.id} className="text-red-600">{result.id}：{result.error}</p>)}
+        {batchResults.some(r => r.error) && <p className="text-gray-500">已保留失败项的选择，可再次执行以重试失败项。</p>}
+      </div>}
       {/* Budget modal */}
       {budgetEdit && (
         <BudgetModal currentBudget={budgetEdit.budget} saving={budgetMutation.isPending}

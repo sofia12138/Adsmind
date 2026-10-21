@@ -5,12 +5,14 @@ import { apiFetch } from './api'
 export interface Advertiser {
   advertiser_id: string
   advertiser_name: string
+  currency?: string
   [key: string]: unknown
 }
 
 export interface MetaAccount {
   id: string
   name: string
+  currency?: string
   account_status?: number
   [key: string]: unknown
 }

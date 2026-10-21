@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from core.isolation import account_clause
 from db import get_biz_conn
 
 
@@ -122,7 +123,7 @@ def query(*, platform: str | None = None, account_id: str | None = None,
           campaign_id: str | None = None,
           start_date: str | None = None, end_date: str | None = None,
           limit: int = 500) -> list[dict]:
-    clauses = []
+    clauses = [account_clause()]
     params: list = []
     if platform:
         clauses.append("platform = %s")
@@ -157,7 +158,7 @@ def query(*, platform: str | None = None, account_id: str | None = None,
 def _build_where(platform: str | None, account_id: str | None,
                  start_date: str, end_date: str,
                  campaign_name: str | None = None) -> tuple[str, list]:
-    clauses = ["stat_date BETWEEN %s AND %s"]
+    clauses = [account_clause(), "stat_date BETWEEN %s AND %s"]
     params: list = [start_date, end_date]
     if platform:
         clauses.append("platform = %s")
@@ -184,7 +185,7 @@ def sum_spend_by_stat_date(start_date: str, end_date: str) -> dict[str, float]:
         cur.execute(
             "SELECT stat_date, SUM(spend) AS spend "
             "FROM biz_campaign_daily_normalized "
-            "WHERE stat_date BETWEEN %s AND %s "
+            f"WHERE {account_clause()} AND stat_date BETWEEN %s AND %s "
             "GROUP BY stat_date",
             (start_date, end_date),
         )

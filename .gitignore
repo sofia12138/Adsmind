@@ -11,6 +11,7 @@ __pycache__/
 *$py.class
 .Python
 .venv/
+.local/
 venv/
 *.egg-info/
 .pytest_cache/

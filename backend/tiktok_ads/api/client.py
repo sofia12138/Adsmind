@@ -47,6 +47,10 @@ class TikTokClient:
         """
         settings = get_settings()
         self.base_url = settings.tiktok_api_base_url
+        if account_id:
+            from services.credential_service import _check_account_scope
+            from core.isolation import tenant_id as current_tenant_id
+            _check_account_scope(tenant_id if tenant_id is not None else current_tenant_id(), 'tiktok', account_id)
 
         token = access_token
         token_source = "explicit" if token else "none"
@@ -82,12 +86,25 @@ class TikTokClient:
         return data.get("data", {})
 
     async def get(self, endpoint: str, params: dict | None = None) -> dict:
+        self._check_advertiser(params)
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         logger.info(f"GET {url}")
         resp = await self._client.get(url, headers=self._headers, params=params)
         return await self._handle_response(resp)
 
     async def post(self, endpoint: str, payload: dict | None = None) -> dict:
+        self._check_advertiser(payload)
+        from services.launch_draft_service import checkpoint_call
+        return await checkpoint_call('tiktok', endpoint, payload, lambda: self._post_unchecked(endpoint, dict(payload or {})))
+
+    def _check_advertiser(self, body):
+        aid = (body or {}).get('advertiser_id')
+        if aid:
+            from services.credential_service import _check_account_scope
+            from core.isolation import tenant_id
+            _check_account_scope(tenant_id(), 'tiktok', str(aid))
+
+    async def _post_unchecked(self, endpoint: str, payload: dict | None = None) -> dict:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         logger.info(f"POST {url}")
         resp = await self._client.post(url, headers=self._headers, json=payload or {})

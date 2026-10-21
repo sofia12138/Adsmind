@@ -32,6 +32,7 @@ function defaults(p?: Partial<BizDateRange>): BizDateRange {
     startDate: p?.startDate ?? DEFAULT_START,
     endDate:   p?.endDate   ?? DEFAULT_END,
     platform:  p?.platform,
+    account_id: p?.account_id,
   }
 }
 
@@ -42,7 +43,7 @@ function defaults(p?: Partial<BizDateRange>): BizDateRange {
 export function useBizOverview(params?: Partial<BizDateRange>) {
   const p = defaults(params)
   return useQuery<BizOverview>({
-    queryKey: ['biz', 'overview', p.startDate, p.endDate, p.platform],
+    queryKey: ['biz', 'overview', p.startDate, p.endDate, p.platform, p.account_id],
     queryFn: () => fetchBizOverview(p),
   })
 }

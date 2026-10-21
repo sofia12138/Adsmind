@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Optional
 
 from db import get_biz_conn
+from core.isolation import tenant_cursor, tenant_id as current_tenant_id
+from fastapi import HTTPException
 
 
 def upsert(*, platform: str, account_id: str, account_name: str = "",
@@ -14,18 +16,18 @@ def upsert(*, platform: str, account_id: str, account_name: str = "",
            app_id: str = "", app_secret: str = "",
            is_default: int = 0, raw_json: dict | None = None) -> int:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute(
             """INSERT INTO biz_ad_accounts
                (platform, account_id, account_name, currency, timezone, status,
                 access_token, app_id, app_secret, is_default, raw_json)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON DUPLICATE KEY UPDATE
-                 account_name = VALUES(account_name),
+                 account_name = IF(tenant_id = VALUES(tenant_id), VALUES(account_name), account_name),
                  currency     = VALUES(currency),
                  timezone     = VALUES(timezone),
                  status       = VALUES(status),
-                 access_token = VALUES(access_token),
+                 access_token = IF(tenant_id = VALUES(tenant_id), VALUES(access_token), access_token),
                  app_id       = VALUES(app_id),
                  app_secret   = VALUES(app_secret),
                  is_default   = VALUES(is_default),
@@ -34,6 +36,12 @@ def upsert(*, platform: str, account_id: str, account_name: str = "",
              access_token, app_id, app_secret, is_default,
              json.dumps(raw_json, ensure_ascii=False) if raw_json else None),
         )
+        check = conn.cursor()
+        check.execute('SELECT tenant_id FROM biz_ad_accounts WHERE platform=%s AND account_id=%s', (platform, account_id))
+        owner = check.fetchone()
+        if owner and int(owner['tenant_id']) != current_tenant_id():
+            conn.rollback()
+            raise HTTPException(409, '此广告账户已接入其他租户，不能覆盖其凭证')
         conn.commit()
         return cur.lastrowid
 
@@ -53,7 +61,7 @@ def update_by_id(row_id: int, **fields) -> int:
         return 0
     vals.append(row_id)
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute(f"UPDATE biz_ad_accounts SET {', '.join(sets)} WHERE id = %s", vals)
         conn.commit()
         return cur.rowcount
@@ -61,7 +69,7 @@ def update_by_id(row_id: int, **fields) -> int:
 
 def delete_by_id(row_id: int) -> int:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute("DELETE FROM biz_ad_accounts WHERE id = %s", (row_id,))
         conn.commit()
         return cur.rowcount
@@ -69,14 +77,14 @@ def delete_by_id(row_id: int) -> int:
 
 def get_by_id(row_id: int) -> Optional[dict]:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute("SELECT * FROM biz_ad_accounts WHERE id = %s", (row_id,))
         return cur.fetchone()
 
 
 def get_by_platform_account(platform: str, account_id: str) -> Optional[dict]:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute(
             "SELECT * FROM biz_ad_accounts WHERE platform = %s AND account_id = %s",
             (platform, account_id),
@@ -91,7 +99,7 @@ def list_by_platform(platform: str, application_id: int | None = None) -> list[d
     传 None 时返回全租户账号（向后兼容旧调用方与默认应用"全租户视角"）。
     """
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         if application_id is not None and _application_id_column_exists():
             cur.execute(
                 "SELECT * FROM biz_ad_accounts "
@@ -114,7 +122,7 @@ def list_all(application_id: int | None = None) -> list[dict]:
     `application_id`：传入非 None 时严格按应用过滤；传 None 表示全租户视角。
     """
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         if application_id is not None and _application_id_column_exists():
             cur.execute(
                 "SELECT * FROM biz_ad_accounts WHERE application_id = %s "
@@ -131,7 +139,7 @@ def list_all(application_id: int | None = None) -> list[dict]:
 def list_active(application_id: int | None = None) -> list[dict]:
     """列出 ACTIVE 状态账号，可选按应用过滤。"""
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         if application_id is not None and _application_id_column_exists():
             cur.execute(
                 "SELECT * FROM biz_ad_accounts "
@@ -149,7 +157,7 @@ def list_active(application_id: int | None = None) -> list[dict]:
 
 def set_default(platform: str, row_id: int) -> None:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute("UPDATE biz_ad_accounts SET is_default = 0 WHERE platform = %s", (platform,))
         cur.execute("UPDATE biz_ad_accounts SET is_default = 1 WHERE id = %s AND platform = %s",
                     (row_id, platform))
@@ -158,7 +166,7 @@ def set_default(platform: str, row_id: int) -> None:
 
 def update_last_synced(row_id: int) -> None:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute("UPDATE biz_ad_accounts SET last_synced_at = %s WHERE id = %s",
                     (datetime.now(), row_id))
         conn.commit()
@@ -190,7 +198,7 @@ def list_by_application(application_id: int) -> list[dict]:
     if not _application_id_column_exists():
         return []
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute(
             "SELECT * FROM biz_ad_accounts WHERE application_id = %s "
             "ORDER BY platform, is_default DESC, id",
@@ -200,39 +208,9 @@ def list_by_application(application_id: int) -> list[dict]:
 
 
 def list_with_application_for_tenant(tenant_id: int) -> list[dict]:
-    """列出该 tenant 下所有账号（已绑定 + 未绑定）。
-
-    阶段 4 X3 临时实现：当前 biz_ad_accounts 仍可能没有 tenant_id（早于 001 加列），
-    所以这里按 internal tenant 视角返回全部账号，前端区分 application_id 字段
-    自行渲染"已绑定 / 未绑定"。
-    """
-    if not _application_id_column_exists():
-        rows = list_all()
-        for r in rows:
-            r["application_id"] = None
-        return rows
-    with get_biz_conn() as conn:
-        cur = conn.cursor()
-        # 兼容是否含 tenant_id 列
-        cur.execute(
-            """SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-               WHERE TABLE_SCHEMA = DATABASE()
-                 AND TABLE_NAME = 'biz_ad_accounts'
-                 AND COLUMN_NAME = 'tenant_id' LIMIT 1"""
-        )
-        has_tenant = cur.fetchone() is not None
-        if has_tenant:
-            cur.execute(
-                "SELECT * FROM biz_ad_accounts WHERE tenant_id = %s OR tenant_id IS NULL "
-                "ORDER BY platform, application_id IS NULL, is_default DESC, id",
-                (tenant_id,),
-            )
-        else:
-            cur.execute(
-                "SELECT * FROM biz_ad_accounts "
-                "ORDER BY platform, application_id IS NULL, is_default DESC, id"
-            )
-        return cur.fetchall() or []
+    if tenant_id != current_tenant_id():
+        raise HTTPException(403, '租户不匹配')
+    return list_all()
 
 
 def bind_to_application(account_row_id: int, application_id: Optional[int]) -> int:
@@ -240,7 +218,7 @@ def bind_to_application(account_row_id: int, application_id: Optional[int]) -> i
     if not _application_id_column_exists():
         return 0
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_ad_accounts')
         cur.execute(
             "UPDATE biz_ad_accounts SET application_id = %s WHERE id = %s",
             (application_id, account_row_id),

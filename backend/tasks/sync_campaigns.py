@@ -928,7 +928,7 @@ async def sync_meta_campaigns(ad_account_id: str,
 #  主入口
 # ═══════════════════════════════════════════════════════════
 
-async def run(platform: str | None = None,
+async def _run_scoped(platform: str | None = None,
               start_date: str | None = None, end_date: str | None = None):
     settings = get_settings()
 
@@ -947,7 +947,8 @@ async def run(platform: str | None = None,
 
     try:
         from repositories import biz_account_repository
-        db_accounts = biz_account_repository.list_active()
+        from core.isolation import application_id
+        db_accounts = biz_account_repository.list_active(application_id=application_id())
     except Exception:
         db_accounts = []
 
@@ -994,7 +995,8 @@ async def run(platform: str | None = None,
                 for mod in ("structure", "reports", "returned"):
                     sync_state.set_error(mod, f"{p}/{aid}: {err}")
 
-    if not synced_any:
+    from core.isolation import tenant_id
+    if not synced_any and tenant_id() == 1 and not db_accounts:
         if platform in (None, "tiktok"):
             advertiser_id = settings.tiktok_advertiser_id
             if advertiser_id:
@@ -1008,7 +1010,32 @@ async def run(platform: str | None = None,
             else:
                 logger.warning("META_AD_ACCOUNT_ID 未配置，跳过 Meta 同步")
 
+    for mod in sync_state.MODULES:
+        if sync_state.get_module_state(mod)["is_running"]:
+            sync_state.set_done(mod)
     logger.info("同步完成")
+
+
+async def run(platform=None, start_date=None, end_date=None):
+    from core.isolation import current_scope, Scope
+    if current_scope.get() is not None:
+        return await _run_scoped(platform, start_date, end_date)
+    from db import get_app_conn
+    with get_app_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM app_tenants WHERE status='active' ORDER BY id")
+        tenants = cur.fetchall()
+    for row in tenants:
+        token = current_scope.set(Scope(int(row['id'])))
+        try:
+            if sync_state.is_any_running():
+                continue
+            await _run_scoped(platform, start_date, end_date)
+        except Exception as error:
+            for module in sync_state.MODULES:
+                sync_state.set_error(module, _fmt_err(error))
+        finally:
+            current_scope.reset(token)
 
 
 def main():

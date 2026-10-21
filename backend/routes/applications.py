@@ -317,6 +317,9 @@ async def add_application_member(
         raise HTTPException(status_code=404, detail="应用不存在")
     _ensure_same_tenant(app, tenant)
     try:
+        from repositories import tenant_member_repository
+        if not tenant_member_repository.get(tenant.id, req.user_id):
+            raise HTTPException(404, '成员不属于当前租户')
         result = application_repository.add_member(application_id, req.user_id, req.role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

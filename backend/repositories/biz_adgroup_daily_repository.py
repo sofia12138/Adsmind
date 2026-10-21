@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from core.isolation import account_clause
 from db import get_biz_conn
 
 
@@ -81,7 +82,7 @@ def _build_where(platform: str | None, account_id: str | None,
                  start_date: str, end_date: str,
                  name_filter: str | None = None,
                  campaign_id: str | None = None) -> tuple[str, list]:
-    clauses = ["stat_date BETWEEN %s AND %s"]
+    clauses = [account_clause(), "stat_date BETWEEN %s AND %s"]
     params: list = [start_date, end_date]
     if platform:
         clauses.append("platform = %s")

@@ -1,6 +1,7 @@
 """Meta Ads 平台适配器 — 包装现有 meta_ads.api.campaigns"""
 from __future__ import annotations
 
+from core.isolation import default_account_id
 from config import get_settings
 from integrations.base import BaseAdsAdapter
 from schemas.campaign import CampaignDTO
@@ -10,7 +11,7 @@ from meta_ads.api.campaigns import MetaCampaignService as MetaCampaignSvc
 class MetaAdsAdapter(BaseAdsAdapter):
 
     def __init__(self, ad_account_id: str | None = None):
-        self.ad_account_id = ad_account_id or get_settings().meta_ad_account_id
+        self.ad_account_id = ad_account_id or default_account_id("meta")
         self._svc = MetaCampaignSvc(self.ad_account_id)
 
     async def list_campaigns(self, *, limit: int = 50, **kwargs) -> tuple[list[dict], list[CampaignDTO]]:

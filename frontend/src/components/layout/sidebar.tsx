@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronRight, LogOut, Eye, EyeOff } from 'lucide-react'
+import { ChevronRight, ExternalLink, LogOut } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { menuConfig } from '@/app/menu-config'
 import type { MenuItem } from '@/types/menu'
@@ -11,10 +11,12 @@ function filterMenu(
   items: MenuItem[],
   hasPanel: (key: string) => boolean,
   hasPlugin: (key: string) => boolean,
+  isInternal: boolean,
 ): MenuItem[] {
   return items.reduce<MenuItem[]>((acc, item) => {
+    if (item.internalOnly && !isInternal) return acc
     if (item.children) {
-      const filtered = filterMenu(item.children, hasPanel, hasPlugin)
+      const filtered = filterMenu(item.children, hasPanel, hasPlugin, isInternal)
       if (filtered.length > 0) {
         acc.push({ ...item, children: filtered })
       }
@@ -66,6 +68,15 @@ function SidebarItem({ item, depth = 0 }: { item: MenuItem; depth?: number }) {
     )
   }
 
+  if (item.externalUrl) {
+    return <a href={item.externalUrl} target="_blank" rel="noopener noreferrer"
+      title={`${item.label}（新标签页打开）`}
+      className={cn('flex items-center gap-2.5 py-2 text-[13px] transition-colors rounded-md mx-2 text-sidebar-foreground hover:bg-sidebar-hover hover:text-white', depth > 0 ? 'pl-11 pr-4' : 'px-5')}>
+      {item.icon && depth === 0 && <item.icon className="w-4 h-4 shrink-0 opacity-70" />}
+      <span>{item.label}</span><ExternalLink className="w-3 h-3 opacity-60" />
+    </a>
+  }
+
   if (!item.path) return null
 
   return (
@@ -89,9 +100,9 @@ function SidebarItem({ item, depth = 0 }: { item: MenuItem; depth?: number }) {
 
 export function Sidebar() {
   const navigate = useNavigate()
-  const { hasPanel, hasPlugin, logout, username, isPreviewMode, togglePreviewMode } = useAuth()
+  const { hasPanel, hasPlugin, logout, username, tenant } = useAuth()
 
-  const visibleMenu = filterMenu(menuConfig, hasPanel, hasPlugin)
+  const visibleMenu = filterMenu(menuConfig, hasPanel, hasPlugin, tenant.isInternal)
 
   function handleLogout() {
     logout()
@@ -119,23 +130,10 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-white/5 px-4 py-3 space-y-2">
-        {/* 阶段 3 批次 1 demo：视图切换（内部 ↔ 通用版试用） */}
-        <button
-          onClick={togglePreviewMode}
-          className={cn(
-            'w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-[11px] transition',
-            isPreviewMode
-              ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-              : 'text-slate-500 hover:bg-slate-700/50 hover:text-slate-300',
-          )}
-          title="切换内部 / 通用版试用视图（仅前端 demo，不影响数据隔离）"
-        >
-          <span className="flex items-center gap-1.5">
-            {isPreviewMode ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-            <span>{isPreviewMode ? '通用版试用中' : '内部视图'}</span>
-          </span>
-          <span className="opacity-60">切换</span>
-        </button>
+        <div className="px-2 py-1.5 text-xs text-slate-400">
+          <div className="text-[10px] text-slate-500">当前团队</div>
+          <div className="mt-1 truncate" title={tenant.name}>{tenant.name}</div>
+        </div>
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">

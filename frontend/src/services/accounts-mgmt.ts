@@ -62,7 +62,7 @@ export function addAdAccount(body: {
   currency?: string
   timezone?: string
 }) {
-  return apiFetch<{ data: AdAccount }>('/api/ad-accounts/', {
+  return apiFetch<{ data: AdAccount }>('/api/ad-accounts/connect', {
     method: 'POST',
     body: JSON.stringify(body),
   })

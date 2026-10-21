@@ -35,6 +35,26 @@ from repositories import (
 
 router = APIRouter(prefix="/auth", tags=["租户自助注册"])
 
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=40, max_length=128)
+    password: str = Field(min_length=8, max_length=72)
+
+    @field_validator('password')
+    @classmethod
+    def validate_password_bytes(cls, value: str) -> str:
+        if len(value.encode('utf-8')) > 72:
+            raise ValueError('密码最多 72 个字节')
+        return value
+
+
+@router.post('/reset-password', dependencies=[Depends(rate_limit('password_reset', per_hour=20))])
+async def reset_password(req: ResetPasswordRequest):
+    from services.password_recovery import consume
+    if not consume(req.token, hash_password(req.password)):
+        raise HTTPException(422, '重置链接无效、已使用或已过期')
+    return {'ok': True}
+
 _PASSWORD_MIN = 8
 _COMPANY_NAME_MAX = 100
 # 简化版邮箱校验：满足 user@domain.tld 即可，避免引入 email-validator 依赖
@@ -296,6 +316,10 @@ class ResendVerificationRequest(BaseModel):
 @router.post("/resend-verification", summary="重发邮箱验证",
              dependencies=[Depends(_email_rate_limit())])
 async def resend_verification(req: ResendVerificationRequest, request: Request):
+    from auth import get_current_user
+    user_identity = get_current_user(request)
+    if req.email.strip().lower() != user_identity.username.lower():
+        raise HTTPException(403, '只能重发当前用户的验证邮件')
     email = req.email.strip().lower()
     user = user_repository.get_by_username(email)
     if not user:

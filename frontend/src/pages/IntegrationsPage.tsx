@@ -29,7 +29,7 @@ function fmtDate(s?: string | null): string {
 }
 
 export default function IntegrationsPage() {
-  const { application } = useAuth()
+  const { currentApplication: application } = useAuth()
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
@@ -74,6 +74,10 @@ export default function IntegrationsPage() {
     setMsg(null)
     try {
       const res = await startOAuth(platform as 'tiktok' | 'meta', application.id, opts)
+      if (!res.mock_mode) {
+        window.location.assign(res.authorize_url)
+        return
+      }
       const done = await openOAuthWindow(res.authorize_url)
       setMsg({
         kind: 'ok',
@@ -99,7 +103,7 @@ export default function IntegrationsPage() {
             集成中心
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            管理 TikTok / Meta 等广告平台的授权与凭证。授权后将自动同步广告账号到当前应用。
+            在 TikTok / Meta 官方页面授权，无需填写 Token。返回后选择连接到当前应用的账号。
           </p>
         </div>
         {application && (
@@ -245,9 +249,9 @@ function PlatformCard({
           </div>
           <div className="text-xs text-gray-500 mt-1">
             {item.configured ? (
-              <span className="text-green-600">已配置 app_id/secret</span>
+              <span className="text-green-600">已开通官方授权连接</span>
             ) : (
-              <span className="text-amber-600">未配置真实凭证 · 仅 mock 演示</span>
+              <span className="text-amber-600">授权连接尚未开通，请联系系统管理员</span>
             )}
           </div>
         </div>
@@ -263,14 +267,14 @@ function PlatformCard({
       </div>
 
       <div className="flex items-center gap-2">
-        {item.configured ? (
+        {(item.platform === 'tiktok' || item.platform === 'meta') ? (
           <button
             onClick={() => onAuthorize()}
-            disabled={realBusy}
+            disabled={realBusy || !item.configured}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {realBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-            {total > 0 ? '继续授权 / 添加账号' : '立即授权'}
+            {item.platform === 'tiktok' ? '连接 TikTok' : '连接 Meta'}
           </button>
         ) : null}
         {item.mock_available && (

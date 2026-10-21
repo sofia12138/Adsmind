@@ -70,7 +70,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+    <div className="login-page min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl shadow-lg shadow-blue-500/25 mb-4">
@@ -83,13 +83,13 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-8">
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">账号</label>
-              <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="请输入账号" autoFocus
+              <label htmlFor="login-username" className="block text-xs font-medium text-slate-300 mb-1.5">账号</label>
+              <input id="login-username" name="username" autoComplete="username" type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="请输入账号" autoFocus
                 className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/40 transition" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">密码</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="请输入密码"
+              <label htmlFor="login-password" className="block text-xs font-medium text-slate-300 mb-1.5">密码</label>
+              <input id="login-password" name="password" autoComplete="current-password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="请输入密码"
                 className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/40 transition" />
             </div>
           </div>

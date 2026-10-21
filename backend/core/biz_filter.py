@@ -64,10 +64,7 @@ def resolve_account_filter(
     默认应用享受"全量视角"，外部租户即使在默认应用下也必须按应用过滤。
     """
     from core.tenant import INTERNAL_TENANT_ID
-    if application.is_default and application.tenant_id == INTERNAL_TENANT_ID:
-        return AccountFilter(account_id=requested_account_id)
-
-    bound_rows = biz_account_repository.list_by_application(application.id)
+    bound_rows = (biz_account_repository.list_all() if application.is_default and application.tenant_id == INTERNAL_TENANT_ID else biz_account_repository.list_by_application(application.id))
     bound = tuple(
         sorted({str(r.get("account_id")) for r in bound_rows if r.get("account_id")})
     )
@@ -120,9 +117,7 @@ def get_application_account_whitelist(application: ApplicationCtx) -> Optional[s
                     （空集意味着应用未绑定任何账号，调用方应直接返回空列表）
     """
     from core.tenant import INTERNAL_TENANT_ID
-    if application.is_default and application.tenant_id == INTERNAL_TENANT_ID:
-        return None
-    bound_rows = biz_account_repository.list_by_application(application.id)
+    bound_rows = (biz_account_repository.list_all() if application.is_default and application.tenant_id == INTERNAL_TENANT_ID else biz_account_repository.list_by_application(application.id))
     return {str(r.get("account_id")) for r in bound_rows if r.get("account_id")}
 
 

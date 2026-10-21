@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from core.isolation import tenant_cursor
 from db import get_biz_conn
 
 
@@ -9,7 +10,7 @@ def upsert_batch(rows: list[dict]) -> int:
     if not rows:
         return 0
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_adgroups')
         sql = """INSERT INTO biz_adgroups
                  (platform, account_id, campaign_id, adgroup_id, adgroup_name,
                   status, is_active, raw_json)
@@ -35,7 +36,7 @@ def upsert_batch(rows: list[dict]) -> int:
 
 def update_status(platform: str, adgroup_id: str, status: str) -> int:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_adgroups')
         cur.execute(
             "UPDATE biz_adgroups SET status = %s, is_active = %s WHERE platform = %s AND adgroup_id = %s",
             (status, int(status in ('ACTIVE', 'ENABLE', 'ENABLED')), platform, adgroup_id),
@@ -46,13 +47,13 @@ def update_status(platform: str, adgroup_id: str, status: str) -> int:
 
 def list_by_platform(platform: str) -> list[dict]:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_adgroups')
         cur.execute("SELECT * FROM biz_adgroups WHERE platform = %s ORDER BY id", (platform,))
         return cur.fetchall()
 
 
 def list_all() -> list[dict]:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_adgroups')
         cur.execute("SELECT * FROM biz_adgroups ORDER BY id")
         return cur.fetchall()

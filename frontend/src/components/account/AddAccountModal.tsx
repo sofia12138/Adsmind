@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Search, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
 import { verifyToken, addAdAccount } from '@/services/accounts-mgmt'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Props {
   onClose: () => void
@@ -18,6 +19,7 @@ interface DiscoveredAccount {
 }
 
 export default function AddAccountModal({ onClose, onSuccess }: Props) {
+  const { currentApplication, tenant } = useAuth()
   const [step, setStep] = useState<Step>('form')
   const [platform, setPlatform] = useState<'tiktok' | 'meta'>('tiktok')
   const [accessToken, setAccessToken] = useState('')
@@ -33,6 +35,10 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
   const handleVerify = async () => {
     if (!accessToken.trim()) {
       setVerifyError('请输入 Access Token')
+      return
+    }
+    if (platform === 'tiktok' && (!appId.trim() || !appSecret.trim())) {
+      setVerifyError('请填写 TikTok App ID 和 App Secret')
       return
     }
     setVerifying(true)
@@ -53,10 +59,10 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
         return
       }
       setDiscovered(result.accounts)
-      setSelected(new Set(result.accounts.map(a => a.account_id)))
+      setSelected(new Set())
       setStep('select')
-    } catch (e: any) {
-      setVerifyError(e.message || '验证失败')
+    } catch (e: unknown) {
+      setVerifyError(e instanceof Error ? e.message : '验证失败')
     } finally {
       setVerifying(false)
     }
@@ -75,6 +81,7 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
     if (selected.size === 0) return
     setAdding(true)
     setAddError('')
+    const saved = new Set<string>()
     try {
       for (const acct of discovered.filter(a => selected.has(a.account_id))) {
         await addAdAccount({
@@ -87,10 +94,14 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
           currency: acct.currency || 'USD',
           timezone: acct.timezone || 'UTC',
         })
+        saved.add(acct.account_id)
       }
       onSuccess()
-    } catch (e: any) {
-      setAddError(e.message || '添加失败')
+    } catch (e: unknown) {
+      setDiscovered(prev => prev.filter(a => !saved.has(a.account_id)))
+      setSelected(prev => new Set([...prev].filter(id => !saved.has(id))))
+      const message = e instanceof Error ? e.message : '添加失败'
+      setAddError(saved.size ? `已连接 ${saved.size} 个账号。其余账号未完成：${message}` : message)
     } finally {
       setAdding(false)
     }
@@ -104,13 +115,14 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
           <h3 className="text-base font-semibold text-gray-900">
             {step === 'form' ? '添加广告账户' : '选择要添加的账户'}
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition">
+          <button onClick={onClose} disabled={verifying || adding} aria-label="关闭" className="text-gray-400 hover:text-gray-600 transition disabled:opacity-50">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
         <div className="px-6 py-5 overflow-y-auto flex-1 space-y-4">
+          <p className="text-xs text-gray-500">连接到「{tenant.name} / {currentApplication?.name ?? '当前应用'}」。凭证加密保存。</p>
           {step === 'form' ? (
             <>
               {/* Platform */}
@@ -135,12 +147,14 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
 
               {/* Access Token */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Access Token *</label>
-                <textarea
+                <label htmlFor="ad-access-token" className="block text-xs font-medium text-gray-500 mb-1.5">Access Token *</label>
+                <input
+                  id="ad-access-token"
+                  type="password"
+                  autoComplete="off"
                   value={accessToken}
                   onChange={e => setAccessToken(e.target.value)}
                   placeholder="粘贴平台 Access Token"
-                  rows={3}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 transition resize-none font-mono text-xs"
                 />
               </div>
@@ -149,8 +163,11 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
               {platform === 'tiktok' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1.5">App ID</label>
+                    <label htmlFor="tiktok-app-id" className="block text-xs font-medium text-gray-500 mb-1.5">App ID *</label>
                     <input
+                      id="tiktok-app-id"
+                      name="tiktok_app_id"
+                      autoComplete="off"
                       value={appId}
                       onChange={e => setAppId(e.target.value)}
                       placeholder="TikTok App ID"
@@ -158,8 +175,11 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1.5">App Secret</label>
+                    <label htmlFor="tiktok-app-secret" className="block text-xs font-medium text-gray-500 mb-1.5">App Secret *</label>
                     <input
+                      id="tiktok-app-secret"
+                      name="tiktok_app_secret"
+                      autoComplete="new-password"
                       value={appSecret}
                       onChange={e => setAppSecret(e.target.value)}
                       type="password"
@@ -182,6 +202,7 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
               <p className="text-xs text-gray-500">
                 Token 验证通过，发现 {discovered.length} 个广告账户。勾选要添加的账户：
               </p>
+              <p className="text-xs text-gray-500">{tenant.planId === 'free' ? '免费试用支持连接 1 个广告账号。' : '仅勾选当前应用需要投放的账号。'}</p>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {discovered.map(acct => (
                   <label
@@ -194,6 +215,7 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
                   >
                     <input
                       type="checkbox"
+                      disabled={adding || (tenant.planId === 'free' && selected.size >= 1 && !selected.has(acct.account_id))}
                       checked={selected.has(acct.account_id)}
                       onChange={() => toggleAccount(acct.account_id)}
                       className="rounded border-gray-300"
@@ -205,7 +227,7 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
                       <div className="text-xs text-gray-400 font-mono">{acct.account_id}</div>
                     </div>
                     {acct.currency && (
-                      <span className="text-xs text-gray-400">{acct.currency}</span>
+                      <span className="text-xs text-gray-400">{acct.currency}<br />{acct.timezone}</span>
                     )}
                     {acct.status && (
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${
@@ -232,6 +254,7 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
           {step === 'select' && (
             <button
               onClick={() => setStep('form')}
+              disabled={adding}
               className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition"
             >
               返回
@@ -239,6 +262,7 @@ export default function AddAccountModal({ onClose, onSuccess }: Props) {
           )}
           <button
             onClick={onClose}
+            disabled={verifying || adding}
             className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition"
           >
             取消

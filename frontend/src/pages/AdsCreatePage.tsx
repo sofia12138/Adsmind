@@ -1,3 +1,4 @@
+import { useLaunchDraft } from '@/components/ads-create/useLaunchDraft'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -121,6 +122,7 @@ let _adsetKeyCounter = 0
 function nextAdSetKey() { return `as_${Date.now()}_${++_adsetKeyCounter}` }
 
 export default function AdsCreatePage() {
+  const { launch, dialog } = useLaunchDraft()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { data: allTemplates } = useTemplates()
@@ -175,6 +177,7 @@ export default function AdsCreatePage() {
   const [selectedTpl, setSelectedTpl] = useState('')
   const [campaignName, setCampaignName] = useState('')
   const [adAccountId, setAdAccountId] = useState('')
+  const budgetCurrency = metaAccounts.find(a => a.id === adAccountId)?.currency || ''
   const [w2a, setW2a] = useState<W2aFields>(emptyW2a)
 
   // ── 素材池 ──
@@ -205,8 +208,8 @@ export default function AdsCreatePage() {
   const [scheduleStartLocal, setScheduleStartLocal] = useState('')
   const [scheduleEndLocal, setScheduleEndLocal] = useState('')
 
-  // ── Meta CBO：Campaign 层日预算（USD，未乘 100）。仅 web_to_app_conversion_cbo 模板使用 ──
-  const [campaignDailyBudgetUsd, setCampaignDailyBudgetUsd] = useState<string>('')
+  // ── Meta CBO：Campaign 层日预算（账户币种主单位，未乘 100）。仅 web_to_app_conversion_cbo 模板使用 ──
+  const [campaignDailyBudget, setCampaignDailyBudget] = useState<string>('')
 
   // ── 投放语种（受 currentTpl.delivery_languages 限制；切换模板由 DeliveryLanguageSelect 内部回落） ──
   const [selectedDeliveryLanguage, setSelectedDeliveryLanguage] = useState<string>(DEFAULT_DELIVERY_LANGUAGE)
@@ -251,7 +254,7 @@ export default function AdsCreatePage() {
   }, [templates.length, searchParams])
   // 切换到非 CBO 模板时清空 CBO 预算字段，避免下一次提交携带过期值
   useEffect(() => {
-    if (!isW2aCbo && campaignDailyBudgetUsd) setCampaignDailyBudgetUsd('')
+    if (!isW2aCbo && campaignDailyBudget) setCampaignDailyBudget('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isW2aCbo])
   // 用户在页面内手动改模板时，把 URL 同步上去（便于刷新/分享）
@@ -596,16 +599,17 @@ export default function AdsCreatePage() {
     if (adSets.length === 0) return '至少需要 1 个 AdSet'
     // CBO 模式：Campaign 层日预算必填；AdSet 不再校验日预算
     if (isW2aCbo) {
-      const cbo = Number(campaignDailyBudgetUsd)
-      if (!campaignDailyBudgetUsd || Number.isNaN(cbo) || cbo <= 0) {
-        return 'CBO 模板必须填写 Campaign Daily Budget（USD），且大于 0'
+      const cbo = Number(campaignDailyBudget)
+      if (!campaignDailyBudget || !Number.isFinite(cbo) || cbo <= 0 || Math.abs(cbo*100-Math.round(cbo*100)) > 0.000001) {
+        return 'CBO 模板必须填写 Campaign Daily Budget（账户币种），且大于 0'
       }
     }
     for (let i = 0; i < adSets.length; i++) {
       const a = adSets[i]
       if (!a.name.trim()) return `AdSet #${i + 1} 名称不能为空`
       if (!isW2aCbo) {
-        if (!a.daily_budget || Number(a.daily_budget) <= 0) return `AdSet #${i + 1} 日预算必须大于 0`
+        const amount = Number(a.daily_budget)
+        if (!a.daily_budget || !Number.isFinite(amount) || amount <= 0 || Math.abs(amount*100-Math.round(amount*100)) > 0.000001) return `AdSet #${i + 1} 日预算必须大于 0，且最多保留两位小数`
       }
       if (a.countries.length === 0) return `AdSet #${i + 1} 至少选择一个国家`
       if (a.material_ids.length === 0) return `AdSet #${i + 1} 至少选择 1 个素材`
@@ -679,6 +683,7 @@ export default function AdsCreatePage() {
 
     setSubmitting(true); setResult(null)
     const res = await createAds({
+      launch,
       mode: 'template',
       platform: (tplPlatform as 'tiktok' | 'meta') || 'meta',
       campaignName: campaignName.trim(),
@@ -686,12 +691,13 @@ export default function AdsCreatePage() {
       countries: adSets[0]?.countries ?? ['US'],
       // CBO：用 Campaign 层日预算作为兜底 budget；ABO：取首个 AdSet 日预算
       budget: isW2aCbo
-        ? (Number(campaignDailyBudgetUsd) || 50)
+        ? (Number(campaignDailyBudget) || 50)
         : (Number(adSets[0]?.daily_budget) || 50),
-      campaignDailyBudget: isW2aCbo ? Number(campaignDailyBudgetUsd) : undefined,
+      campaignDailyBudget: isW2aCbo ? Number(campaignDailyBudget) : undefined,
       templateId: selectedTpl,
       template: currentTpl ?? null,
       adAccountId: isMeta ? adAccountId : undefined,
+      budgetCurrency,
       w2a: isW2a ? w2a : undefined,
       materials: mats,
       adsets: adsetConfigs,
@@ -718,6 +724,7 @@ export default function AdsCreatePage() {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {dialog}
       <PageHeader title="新建广告" description="基于模板快速创建广告投放计划"
         action={<button onClick={() => navigate('/ads')} className="text-sm text-gray-500 hover:text-gray-700 transition">返回广告数据</button>}
       />
@@ -814,10 +821,10 @@ export default function AdsCreatePage() {
                 {isW2aCbo && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Campaign Daily Budget / 广告系列日预算 (USD) <span className="text-red-400">*</span>
+                      Campaign Daily Budget / 广告系列日预算 ({budgetCurrency || '请选择账户'}) <span className="text-red-400">*</span>
                     </label>
-                    <input type="number" value={campaignDailyBudgetUsd}
-                      onChange={e => { setCampaignDailyBudgetUsd(e.target.value); setResult(null) }}
+                    <input type="number" value={campaignDailyBudget}
+                      onChange={e => { setCampaignDailyBudget(e.target.value); setResult(null) }}
                       min="1" step="1" className={inputCls} placeholder="50" />
                     <p className="text-[11px] text-gray-400 mt-1">
                       CBO 模式：预算在广告系列层统一分配，AdSet 不再单独设置日预算。
@@ -1152,7 +1159,7 @@ export default function AdsCreatePage() {
                             </div>
                           ) : (
                             <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">日预算 (USD) <span className="text-red-400">*</span></label>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">日预算 ({budgetCurrency || '请选择账户'}) <span className="text-red-400">*</span></label>
                               <input type="number" value={adSet.daily_budget}
                                 onChange={e => updateAdSet(adSet.key, { daily_budget: e.target.value })}
                                 min="1" step="1" className={inputCls} placeholder="50" />
@@ -1296,7 +1303,7 @@ export default function AdsCreatePage() {
               {isW2aCbo && (
                 <>
                   <p>预算模式: <strong>CBO / 广告系列预算</strong></p>
-                  <p>Campaign 日预算: <strong>${campaignDailyBudgetUsd || '0'}/天</strong></p>
+                  <p>Campaign 日预算: <strong>{budgetCurrency} {campaignDailyBudget || '0'}/天</strong></p>
                 </>
               )}
               <p>AdSet 数量: <strong>{adSets.length}</strong></p>
@@ -1305,7 +1312,7 @@ export default function AdsCreatePage() {
               {adSets.map((a, i) => (
                 <p key={a.key} className="pl-4">
                   AdSet #{i + 1} ({a.name}): {a.material_ids.length} 个 Ad
-                  {!isW2aCbo && <> · ${a.daily_budget}/天</>}
+                  {!isW2aCbo && <> · {budgetCurrency} {a.daily_budget}/天</>}
                   {' · '}{a.countries.join(',')}
                 </p>
               ))}
@@ -1393,21 +1400,21 @@ function BatchResultDisplay({ result }: { result: CreateResult }) {
 
   return (
     <div className={`mb-6 p-4 rounded-xl border ${
-      !result.success ? 'bg-red-50 border-red-200'
+      result.draftSaved ? 'bg-blue-50 border-blue-200' : !result.success ? 'bg-red-50 border-red-200'
         : isPartial ? 'bg-amber-50 border-amber-200'
           : 'bg-green-50 border-green-200'
     }`}>
       <div className="flex items-start gap-3">
-        {!result.success
+        {result.draftSaved ? <CheckCircle className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" /> : !result.success
           ? <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
           : isPartial
             ? <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             : <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />}
         <div className="min-w-0 flex-1">
-          <p className={`text-sm font-medium ${!result.success ? 'text-red-700' : isPartial ? 'text-amber-700' : 'text-green-700'}`}>
-            {!result.success ? '创建失败' : isPartial ? '部分创建成功' : '创建成功'}
+          <p className={`text-sm font-medium ${result.draftSaved ? 'text-blue-700' : !result.success ? 'text-red-700' : isPartial ? 'text-amber-700' : 'text-green-700'}`}>
+            {result.draftSaved ? '草稿已保存' : !result.success ? '创建失败' : isPartial ? '部分创建成功' : '创建成功'}
           </p>
-          <p className={`text-xs mt-1 ${!result.success ? 'text-red-600' : isPartial ? 'text-amber-600' : 'text-green-600'}`}>{result.message}</p>
+          <p className={`text-xs mt-1 ${result.draftSaved ? 'text-blue-600' : !result.success ? 'text-red-600' : isPartial ? 'text-amber-600' : 'text-green-600'}`}>{result.message}</p>
 
           {details && (
             <div className="mt-3 space-y-2">

@@ -1,4 +1,5 @@
 import { apiFetch } from './api'
+import type { LaunchResponse } from './launch-drafts'
 import type { Template } from './templates'
 
 const TIKTOK_LOCATION_IDS: Record<string, string> = {
@@ -67,12 +68,14 @@ export interface MetaScheduleFields {
 }
 
 export interface CreateAdsParams {
+  launch?: (payload: Record<string, unknown>) => Promise<LaunchResponse>
   mode: 'template'
   platform: 'tiktok' | 'meta'
   campaignName: string
   country: string
   countries?: string[]
   budget: number
+  budgetCurrency?: string
   templateId?: string
   template?: Template | null
   adAccountId?: string
@@ -82,7 +85,7 @@ export interface CreateAdsParams {
   assetRefs?: AssetRefs
   /** Meta 投放时间（写入 AdSet）；不传 → 不传给 Meta API */
   metaSchedule?: MetaScheduleFields
-  /** Meta CBO 模板的 Campaign 层日预算（USD，未乘 100）。仅 web_to_app_conversion_cbo 使用 */
+  /** Meta CBO 模板的 Campaign 层日预算（账户币种主单位，未乘 100）。仅 web_to_app_conversion_cbo 使用 */
   campaignDailyBudget?: number
   /** 本次投放选择的语种（必须 ∈ template.delivery_languages）；后端会强制启用平台语言定向 */
   selectedDeliveryLanguage?: string
@@ -137,6 +140,7 @@ export interface BatchLaunchResult {
 export interface CreateResult {
   success: boolean
   message: string
+  draftSaved?: boolean
   details?: BatchLaunchResult
 }
 
@@ -160,6 +164,7 @@ async function launchFromTemplate(p: CreateAdsParams): Promise<CreateResult> {
       template_id: p.templateId,
       campaign_name: p.campaignName,
       budget: p.budget || 50,
+      budget_currency: p.budgetCurrency,
     }
     if (p.selectedDeliveryLanguage) {
       body.selected_delivery_language = p.selectedDeliveryLanguage
@@ -222,13 +227,13 @@ async function launchFromTemplate(p: CreateAdsParams): Promise<CreateResult> {
       body.location_ids = locId ? [locId] : []
     }
 
-    const res = await apiFetch<{ data: BatchLaunchResult; error?: string }>('/api/templates/launch', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    })
+    const res = (p.launch ? await p.launch(body) : await apiFetch('/api/templates/launch', {
+      method: 'POST', body: JSON.stringify(body),
+    })) as { data?: BatchLaunchResult; error?: string; draft_saved?: boolean }
+    if (res.draft_saved) return { success: false, draftSaved: true, message: res.error || '草稿已保存' }
 
     if (res.error) {
-      return { success: false, message: `模板投放失败: ${res.error}` }
+      return { success: false, message: `模板投放失败: ${res.error}`, details: res.data }
     }
 
     const d = res.data
@@ -283,8 +288,8 @@ function _buildW2aOverrides(p: CreateAdsParams, isCbo = false): Record<string, u
   if (isCbo) {
     // CBO（Meta ACB）：仅在 Campaign 层注入 daily_budget；
     // 不要带 is_adset_budget_sharing_enabled —— Meta 会拒绝 (subcode=4834002)
-    const cboUsd = Number(p.campaignDailyBudget ?? p.budget ?? 50)
-    campaignBlock.daily_budget = Math.round(cboUsd * 100)
+    const cboBudget = Number(p.campaignDailyBudget ?? p.budget ?? 50)
+    campaignBlock.daily_budget = Math.round(cboBudget * 100)
   }
   const overrides: Record<string, unknown> = {
     adset: adsetBlock,

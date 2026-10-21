@@ -80,47 +80,7 @@ async def _fetch_bc_advertisers(settings, bc_id: str) -> list[dict]:
 
 @router.get("/")
 async def list_advertisers():
-    """获取当前 Token 关联的所有广告主账户（OAuth 列表 ∪ BC 列表）"""
-    settings = get_settings()
-    warnings: list[str] = []
-
-    oauth_list = await _fetch_oauth_advertisers(settings)
-    bc_list: list[dict] = []
-    if settings.tiktok_bc_id:
-        try:
-            bc_list = await _fetch_bc_advertisers(settings, settings.tiktok_bc_id)
-        except Exception as e:
-            warnings.append(f"BC 账号同步失败：{e}（已降级为 OAuth 授权列表）")
-            logger.warning(f"[advertisers] BC fetch failed: {e}")
-
-    # 按 advertiser_id 去重 union；OAuth 列表优先（保留授权阶段的字段，例如某些扩展属性）
-    merged: dict[str, dict] = {}
-    for item in oauth_list:
-        aid = str(item.get("advertiser_id") or "").strip()
-        if aid:
-            merged[aid] = item
-    for item in bc_list:
-        aid = str(item.get("advertiser_id") or "").strip()
-        if not aid:
-            continue
-        if aid in merged:
-            # 已存在则用 BC 的字段补齐 name 等（BC 接口的 name 一般更新更及时）
-            for k, v in item.items():
-                if v not in (None, "") and not merged[aid].get(k):
-                    merged[aid][k] = v
-        else:
-            merged[aid] = item
-
-    result = list(merged.values())
-    # 名称排序，方便下拉查找
-    result.sort(key=lambda x: str(x.get("advertiser_name") or x.get("advertiser_id") or ""))
-
-    logger.info(
-        f"[advertisers] union 结果：oauth={len(oauth_list)} bc={len(bc_list)} "
-        f"merged={len(result)} bc_id={settings.tiktok_bc_id or '-'}"
-    )
-
-    resp: dict = {"data": result}
-    if warnings:
-        resp["bc_sync_warning"] = " ; ".join(warnings)
-    return resp
+    from repositories import biz_account_repository
+    from core.isolation import application_id
+    rows = biz_account_repository.list_by_platform('tiktok', application_id=application_id())
+    return {"data": [{"advertiser_id": r['account_id'], "advertiser_name": r['account_name'], "currency": r['currency'], "timezone": r['timezone']} for r in rows]}

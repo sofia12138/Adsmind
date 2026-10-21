@@ -1,3 +1,4 @@
+import { useLaunchDraft } from './useLaunchDraft'
 /**
  * TikTok Minis 新建广告子表单（嵌入到统一新建广告页中使用）
  *
@@ -11,7 +12,6 @@ import { SectionCard } from '@/components/common/SectionCard'
 import type { Template } from '@/services/templates'
 import { fetchTikTokAdvertisers, type Advertiser } from '@/services/advertisers'
 import { fetchMaterialList, type TikTokMaterialRecord } from '@/services/tiktok-materials'
-import { apiFetch } from '@/services/api'
 import { TikTokLocationPicker, resolveCountryCodesFromTemplate } from '@/components/common/TikTokLocationPicker'
 import { TikTokIdentityPicker } from '@/components/common/TikTokIdentityPicker'
 import { codesToLocationIds, type LocationSelection } from '@/constants/tiktok-locations'
@@ -26,6 +26,7 @@ export function isTikTokMinisBasicTpl(t: Template | null | undefined): boolean {
 }
 
 interface LaunchResult {
+  draft_saved?: boolean
   data?: {
     platform?: string
     template_type?: string
@@ -60,11 +61,13 @@ function renderStepResult(step: StepResult | undefined, idKey: string): string {
 }
 
 export default function TikTokMinisCreateForm({ tpl }: Props) {
+  const { launch, dialog } = useLaunchDraft()
   const { data: advResp } = useQuery({ queryKey: ['tiktok-advertisers'], queryFn: fetchTikTokAdvertisers })
   const advertisers: Advertiser[] = advResp?.data ?? []
 
   // ── 表单字段 ──
   const [advertiserId, setAdvertiserId] = useState('')
+  const budgetCurrency = advertisers.find(a => a.advertiser_id === advertiserId)?.currency || ''
   const [campaignName, setCampaignName] = useState('')
   const [adgroupName, setAdgroupName] = useState('')
   const [adName, setAdName] = useState('')
@@ -146,6 +149,7 @@ export default function TikTokMinisCreateForm({ tpl }: Props) {
       adgroup_name: adgroupName.trim() || campaignName.trim(),
       ad_name: adName.trim() || adgroupName.trim() || campaignName.trim(),
       budget: Number(budget),
+      budget_currency: budgetCurrency,
       app_id: appId.trim(),
       minis_id: minisId.trim(),
       identity_id: identityId.trim(),
@@ -162,12 +166,9 @@ export default function TikTokMinisCreateForm({ tpl }: Props) {
 
     setSubmitting(true)
     try {
-      const res = await apiFetch<LaunchResult>('/api/templates/launch', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
+      const res = await launch(payload) as LaunchResult
       setResult(res)
-      if (res.error) setErrorMsg(res.error)
+      if (res.error && !res.draft_saved) setErrorMsg(res.error)
     } catch (e) {
       setErrorMsg(`投放失败: ${(e as Error).message}`)
     } finally {
@@ -182,6 +183,7 @@ export default function TikTokMinisCreateForm({ tpl }: Props) {
 
   return (
     <>
+      {dialog}
       {isSystemTpl && (
         <div className="flex items-start gap-2 p-3 mb-5 bg-amber-50 border border-amber-200 rounded-xl">
           <Shield className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
@@ -224,7 +226,7 @@ export default function TikTokMinisCreateForm({ tpl }: Props) {
       <SectionCard title="预算与排期" className="mb-5">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">日预算 (USD) <span className="text-red-400">*</span></label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">日预算 ({budgetCurrency || '请选择账户'}) <span className="text-red-400">*</span></label>
             <input type="number" value={budget} onChange={e => setBudget(e.target.value)} className={inputCls} min="1" step="1" />
           </div>
           <div>
@@ -328,6 +330,7 @@ export default function TikTokMinisCreateForm({ tpl }: Props) {
         </button>
       </div>
 
+      {result?.draft_saved && <p role="status" className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">草稿已保存，可在「广告草稿」中继续。</p>}
       {errorMsg && (
         <div className="flex items-start gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />

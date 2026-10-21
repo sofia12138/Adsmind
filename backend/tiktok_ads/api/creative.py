@@ -10,6 +10,7 @@ import httpx
 from loguru import logger
 
 from tiktok_ads.api.client import TikTokClient, TikTokApiError
+from core.isolation import default_account_id
 from config import get_settings
 
 
@@ -56,8 +57,8 @@ _UPLOAD_TIMEOUT = httpx.Timeout(connect=30.0, read=300.0, write=300.0, pool=30.0
 class CreativeService:
     def __init__(self, client: TikTokClient | None = None,
                  advertiser_id: str | None = None):
-        self.client = client or TikTokClient()
-        self.advertiser_id = advertiser_id or get_settings().tiktok_advertiser_id
+        self.advertiser_id = advertiser_id or default_account_id("tiktok")
+        self.client = client or TikTokClient(account_id=self.advertiser_id or None)
 
     async def list_videos(self, page: int = 1, page_size: int = 20) -> dict:
         params = {

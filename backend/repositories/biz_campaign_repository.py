@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from core.isolation import tenant_cursor
 from db import get_biz_conn
 
 
@@ -12,7 +13,7 @@ def upsert(*, platform: str, account_id: str, campaign_id: str,
            buying_type: str = "", status: str = "",
            is_active: bool = True, raw_json: dict | None = None) -> int:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_campaigns')
         cur.execute(
             """INSERT INTO biz_campaigns
                (platform, account_id, campaign_id, campaign_name,
@@ -39,7 +40,7 @@ def upsert_batch(rows: list[dict]) -> int:
     if not rows:
         return 0
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_campaigns')
         sql = """INSERT INTO biz_campaigns
                  (platform, account_id, campaign_id, campaign_name,
                   objective, buying_type, status, is_active, raw_json)
@@ -67,7 +68,7 @@ def upsert_batch(rows: list[dict]) -> int:
 
 def get_by_platform_campaign(platform: str, campaign_id: str) -> Optional[dict]:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_campaigns')
         cur.execute(
             "SELECT * FROM biz_campaigns WHERE platform = %s AND campaign_id = %s",
             (platform, campaign_id),
@@ -77,7 +78,7 @@ def get_by_platform_campaign(platform: str, campaign_id: str) -> Optional[dict]:
 
 def list_by_account(platform: str, account_id: str) -> list[dict]:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_campaigns')
         cur.execute(
             "SELECT * FROM biz_campaigns WHERE platform = %s AND account_id = %s ORDER BY id",
             (platform, account_id),
@@ -87,7 +88,7 @@ def list_by_account(platform: str, account_id: str) -> list[dict]:
 
 def list_by_platform(platform: str) -> list[dict]:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_campaigns')
         cur.execute(
             "SELECT * FROM biz_campaigns WHERE platform = %s ORDER BY id",
             (platform,),
@@ -97,7 +98,7 @@ def list_by_platform(platform: str) -> list[dict]:
 
 def update_status(platform: str, campaign_id: str, status: str) -> int:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_campaigns')
         cur.execute(
             "UPDATE biz_campaigns SET status = %s, is_active = %s WHERE platform = %s AND campaign_id = %s",
             (status, int(status in ('ACTIVE', 'ENABLE', 'ENABLED')), platform, campaign_id),
@@ -108,6 +109,6 @@ def update_status(platform: str, campaign_id: str, status: str) -> int:
 
 def list_all() -> list[dict]:
     with get_biz_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'biz_campaigns')
         cur.execute("SELECT * FROM biz_campaigns ORDER BY id")
         return cur.fetchall()

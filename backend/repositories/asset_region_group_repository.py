@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from core.isolation import tenant_cursor
 from db import get_app_conn
 
 
@@ -38,7 +39,7 @@ def list_all(*, status: str | None = None, keyword: str | None = None) -> list[d
         where.append("name LIKE %s")
         params.append(kw)
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_region_groups')
         cur.execute(
             f"SELECT * FROM asset_region_groups WHERE {' AND '.join(where)} ORDER BY id DESC",
             params,
@@ -48,7 +49,7 @@ def list_all(*, status: str | None = None, keyword: str | None = None) -> list[d
 
 def get_by_id(asset_id: int) -> Optional[dict]:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_region_groups')
         cur.execute("SELECT * FROM asset_region_groups WHERE id = %s", (asset_id,))
         row = cur.fetchone()
     return _row_to_dict(row) if row else None
@@ -57,7 +58,7 @@ def get_by_id(asset_id: int) -> Optional[dict]:
 def create(*, name: str, country_codes: list, language_hint: str = "",
            remark: str = "", created_by: str = "", org_id: str = "") -> dict:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_region_groups')
         cur.execute(
             """INSERT INTO asset_region_groups
                (org_id, name, country_codes, country_count, language_hint, remark, created_by)
@@ -89,7 +90,7 @@ def update(asset_id: int, **kwargs) -> Optional[dict]:
         return get_by_id(asset_id)
     values.append(asset_id)
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_region_groups')
         cur.execute(
             f"UPDATE asset_region_groups SET {', '.join(set_parts)} WHERE id = %s",
             values,
@@ -100,7 +101,7 @@ def update(asset_id: int, **kwargs) -> Optional[dict]:
 
 def delete(asset_id: int) -> bool:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_region_groups')
         cur.execute("DELETE FROM asset_region_groups WHERE id = %s", (asset_id,))
         conn.commit()
         return cur.rowcount > 0
@@ -108,7 +109,7 @@ def delete(asset_id: int) -> bool:
 
 def toggle_status(asset_id: int) -> Optional[dict]:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_region_groups')
         cur.execute(
             "UPDATE asset_region_groups SET status = IF(status='active','inactive','active') WHERE id = %s",
             (asset_id,),

@@ -56,6 +56,9 @@ async def upload_video(
     file_md5 由路由层在接收文件时同步算出，传入后可避免在 creative 层再扫一遍文件。
     """
 
+    from services.credential_service import _check_account_scope
+    from core.isolation import tenant_id
+    _check_account_scope(tenant_id(), 'tiktok', advertiser_id)
     upload_channel = _determine_upload_channel(duration_sec)
     can_use, usage_note = _build_ad_usage(duration_sec)
 

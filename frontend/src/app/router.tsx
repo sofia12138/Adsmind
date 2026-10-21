@@ -4,6 +4,7 @@ import { AuthGuard } from '@/components/auth/AuthGuard'
 
 import LoginPage from '@/pages/LoginPage'
 import RegisterPage from '@/pages/RegisterPage'
+import ResetPasswordPage from '@/pages/ResetPasswordPage'
 import InvitationAcceptPage from '@/pages/InvitationAcceptPage'
 import ForbiddenPage from '@/pages/ForbiddenPage'
 import TeamPage from '@/pages/TeamPage'
@@ -15,8 +16,11 @@ import AdsPage from '@/pages/AdsPage'
 import TikTokConsolePage from '@/pages/TikTokConsolePage'
 import MetaConsolePage from '@/pages/MetaConsolePage'
 import AdsCreatePage from '@/pages/AdsCreatePage'
+import LaunchDraftsPage from '@/pages/LaunchDraftsPage'
 import TemplatesPage from '@/pages/TemplatesPage'
+import DistributionPage from '@/pages/DistributionPage'
 import CreativesPage from '@/pages/CreativesPage'
+import AutoEditPage from '@/pages/AutoEditPage'
 import CreativeAnalysisPage from '@/pages/CreativeAnalysisPage'
 import OverviewPage from '@/pages/OverviewPage'
 import ChannelAnalysisPage from '@/pages/ChannelAnalysisPage'
@@ -39,6 +43,7 @@ import TikTokMaterialsPage from '@/pages/TikTokMaterialsPage'
 import ApplicationsListPage from '@/pages/ApplicationsListPage'
 import ApplicationDetailPage from '@/pages/ApplicationDetailPage'
 import IntegrationsPage from '@/pages/IntegrationsPage'
+import PlatformAuthorizationPage from '@/pages/PlatformAuthorizationPage'
 
 function G({ panelKey, children }: { panelKey: string; children: React.ReactNode }) {
   return <AuthGuard panelKey={panelKey}>{children}</AuthGuard>
@@ -53,6 +58,7 @@ function RedirectKeepQuery({ to }: { to: string }) {
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage /> },
   { path: '/invitation/:token', element: <InvitationAcceptPage /> },
   { path: '/verify-email/:token', element: <VerifyEmailPage /> },
   {
@@ -66,11 +72,16 @@ export const router = createBrowserRouter([
       { path: 'ads',                element: <G panelKey="ads_data"><AdsPage /></G> },
       { path: 'console/tiktok',     element: <G panelKey="tiktok_console"><TikTokConsolePage /></G> },
       { path: 'console/meta',       element: <G panelKey="meta_console"><MetaConsolePage /></G> },
+      { path: 'ads/drafts', element: <G panelKey="ad_create"><LaunchDraftsPage /></G> },
       { path: 'ads/create',         element: <G panelKey="ad_create"><AdsCreatePage /></G> },
       // 旧链接兼容：保留 ?template_id= 透传，重定向到统一新建广告页
       { path: 'ads/create-tiktok-minis', element: <RedirectKeepQuery to="/ads/create" /> },
       { path: 'templates',          element: <G panelKey="template_mgmt"><TemplatesPage /></G> },
       { path: 'creatives',          element: <G panelKey="creatives"><CreativesPage /></G> },
+      { path: 'auto-edit',          element: <G panelKey="creatives"><AutoEditPage /></G> },
+      { path: 'distribution/youtube', element: <G panelKey="creatives"><DistributionPage section="tasks" /></G> },
+      { path: 'distribution/records', element: <G panelKey="creatives"><DistributionPage section="records" /></G> },
+      { path: 'distribution/channels', element: <G panelKey="creatives"><DistributionPage section="channels" /></G> },
       { path: 'creative-analysis',  element: <G panelKey="creative_analysis"><CreativeAnalysisPage /></G> },
       { path: 'overview',           element: <G panelKey="overview"><OverviewPage /></G> },
       { path: 'channel-analysis',   element: <G panelKey="channel_analysis"><ChannelAnalysisPage /></G> },
@@ -93,6 +104,8 @@ export const router = createBrowserRouter([
       { path: 'applications',           element: <G panelKey="applications"><ApplicationsListPage /></G> },
       { path: 'applications/:id',       element: <G panelKey="applications"><ApplicationDetailPage /></G> },
       { path: 'settings/integrations',  element: <G panelKey="applications"><IntegrationsPage /></G> },
+      { path: 'settings/integrations/tiktok/complete', element: <G panelKey="applications"><PlatformAuthorizationPage key="tiktok" platform="tiktok" /></G> },
+      { path: 'settings/integrations/meta/complete', element: <G panelKey="applications"><PlatformAuthorizationPage key="meta" platform="meta" /></G> },
       { path: 'team',                   element: <G panelKey="team"><TeamPage /></G> },
       { path: 'upgrade-requests',       element: <G panelKey="user_mgmt"><UpgradeRequestsPage /></G> },
     ],

@@ -171,6 +171,9 @@ def decode_token(token: str) -> dict:
 
 # ---------- FastAPI 依赖 ----------
 def get_current_user(request: Request) -> User:
+    verified = getattr(request.state, 'verified_user', None)
+    if verified is not None:
+        return verified
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未登录")

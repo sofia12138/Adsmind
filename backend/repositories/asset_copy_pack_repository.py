@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
+from core.isolation import tenant_cursor
 from db import get_app_conn
 
 
@@ -46,7 +47,7 @@ def list_all(*, status: str | None = None, keyword: str | None = None) -> list[d
         where.append("(name LIKE %s OR primary_text LIKE %s OR headline LIKE %s OR product_name LIKE %s)")
         params.extend([kw, kw, kw, kw])
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_copy_packs')
         cur.execute(
             f"SELECT * FROM asset_copy_packs WHERE {' AND '.join(where)} ORDER BY id DESC",
             params,
@@ -56,7 +57,7 @@ def list_all(*, status: str | None = None, keyword: str | None = None) -> list[d
 
 def get_by_id(asset_id: int) -> Optional[dict]:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_copy_packs')
         cur.execute("SELECT * FROM asset_copy_packs WHERE id = %s", (asset_id,))
         row = cur.fetchone()
     return _row_to_dict(row) if row else None
@@ -68,7 +69,7 @@ def create(*, name: str, primary_text: str = "", headline: str = "",
            theme_tags: list | None = None, remark: str = "",
            created_by: str = "", org_id: str = "") -> dict:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_copy_packs')
         cur.execute(
             """INSERT INTO asset_copy_packs
                (org_id, name, primary_text, headline, description, language,
@@ -102,7 +103,7 @@ def update(asset_id: int, **kwargs) -> Optional[dict]:
         return get_by_id(asset_id)
     values.append(asset_id)
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_copy_packs')
         cur.execute(
             f"UPDATE asset_copy_packs SET {', '.join(set_parts)} WHERE id = %s",
             values,
@@ -113,7 +114,7 @@ def update(asset_id: int, **kwargs) -> Optional[dict]:
 
 def delete(asset_id: int) -> bool:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_copy_packs')
         cur.execute("DELETE FROM asset_copy_packs WHERE id = %s", (asset_id,))
         conn.commit()
         return cur.rowcount > 0
@@ -121,7 +122,7 @@ def delete(asset_id: int) -> bool:
 
 def toggle_status(asset_id: int) -> Optional[dict]:
     with get_app_conn() as conn:
-        cur = conn.cursor()
+        cur = tenant_cursor(conn, 'asset_copy_packs')
         cur.execute(
             "UPDATE asset_copy_packs SET status = IF(status='active','inactive','active') WHERE id = %s",
             (asset_id,),
