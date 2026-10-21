@@ -101,6 +101,7 @@ export const menuConfig: MenuItem[] = [
       { id: 'overview', label: '数据总览', icon: Eye, path: '/overview', panelKey: 'overview' },
       { id: 'channel-analysis', label: '渠道分析', icon: GitCompare, path: '/channel-analysis', panelKey: 'channel_analysis' },
       { id: 'biz-analysis', label: '业务分析', icon: TrendingUp, path: '/biz-analysis', panelKey: 'biz_analysis' },
+      { id: 'asset-analysis', label: '素材与剧目分析', icon: BarChart3, path: '/asset-analysis', panelKey: 'creatives' },
       { id: 'returned-conversion', label: '广告回传分析', icon: Redo2, path: '/returned-conversion', panelKey: 'returned_conversion' },
       { id: 'drama-analysis', label: '剧级分析', icon: Film, path: '/drama-analysis', panelKey: 'drama_analysis', pluginKey: 'drama' },
       { id: 'optimizer-performance', label: '优化师人效', icon: UserCheck, path: '/optimizer-performance', panelKey: 'optimizer_performance', pluginKey: 'optimizer' },

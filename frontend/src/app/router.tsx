@@ -55,6 +55,7 @@ import AdCreationDraftDetailPage from '@/pages/AdCreationDraftDetailPage'
 import PlatformPreflightPage from '@/pages/PlatformPreflightPage'
 import AutomationRulesPage from '@/pages/AutomationRulesPage'
 import ReadinessAnalyticsPage from '@/pages/ReadinessAnalyticsPage'
+import AssetAnalysisPage from '@/pages/AssetAnalysisPage'
 
 function G({ panelKey, children }: { panelKey: string; children: React.ReactNode }) {
   return <AuthGuard panelKey={panelKey}>{children}</AuthGuard>
@@ -90,6 +91,7 @@ export const router = createBrowserRouter([
       { path: 'ads/platform-preflight', element: <G panelKey="platform_preflight"><PlatformPreflightPage /></G> },
       { path: 'ads/automation-rules', element: <G panelKey="automation_rules"><AutomationRulesPage /></G> },
       { path: 'ads/readiness', element: <G panelKey="platform_preflight"><ReadinessAnalyticsPage /></G> },
+      { path: 'asset-analysis', element: <G panelKey="creatives"><AssetAnalysisPage /></G> },
       { path: 'ads/create',         element: <G panelKey="ad_create"><AdsCreatePage /></G> },
       // 旧链接兼容：保留 ?template_id= 透传，重定向到统一新建广告页
       { path: 'ads/create-tiktok-minis', element: <RedirectKeepQuery to="/ads/create" /> },
