@@ -20,7 +20,7 @@ import AdsCreatePage from '@/pages/AdsCreatePage'
 import LaunchDraftsPage from '@/pages/LaunchDraftsPage'
 import TemplatesPage from '@/pages/TemplatesPage'
 import DistributionPage from '@/pages/DistributionPage'
-import CreativesPage from '@/pages/CreativesPage'
+import MaterialCatalogPage from '@/features/material-catalog/MaterialCatalogPage'
 import AutoEditPage from '@/pages/AutoEditPage'
 import CreativeAnalysisPage from '@/pages/CreativeAnalysisPage'
 import OverviewPage from '@/pages/OverviewPage'
@@ -82,7 +82,8 @@ export const router = createBrowserRouter([
       { path: 'ads/create-tiktok-minis', element: <RedirectKeepQuery to="/ads/create" /> },
       { path: 'templates',          element: <G panelKey="template_mgmt"><TemplatesPage /></G> },
       { path: 'drama-catalog',      element: <G panelKey="creatives"><DramaCatalogPage /></G> },
-      { path: 'creatives',          element: <G panelKey="creatives"><CreativesPage /></G> },
+      { path: 'creatives',          element: <G panelKey="creatives"><MaterialCatalogPage /></G> },
+      { path: 'materials/upload',    element: <G panelKey="creatives"><MaterialCatalogPage openUpload /></G> },
       { path: 'auto-edit',          element: <G panelKey="creatives"><AutoEditPage /></G> },
       { path: 'distribution/youtube', element: <G panelKey="creatives"><DistributionPage section="tasks" /></G> },
       { path: 'distribution/records', element: <G panelKey="creatives"><DistributionPage section="records" /></G> },

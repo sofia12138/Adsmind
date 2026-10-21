@@ -323,6 +323,10 @@ class TenantIsolationTests(unittest.TestCase):
         parts[2] = 'invalid'
         self.assertEqual(self.client.get(path, headers={'Authorization': 'Bearer '+'.'.join(parts)}).status_code, 401)
         self.assertEqual(self.client.get(path, headers={**self.headers[0], 'X-Application-Id': str(self.apps[1])}).status_code, 403)
+        self.assertEqual(
+            self.client.get('/api/material-catalog/references', headers={**self.headers[0], 'X-Application-Id': str(self.apps[1])}).status_code,
+            404,
+        )
         forged_tenant = create_token(self.users[0]['username'], 'admin', tenant_id=self.ids[1])
         self.assertEqual(self.client.get(path, headers={'Authorization': 'Bearer '+forged_tenant}).status_code, 403)
         # An arbitrary tenant header never overrides signed identity.

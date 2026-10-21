@@ -72,7 +72,7 @@ class NamingRuleServiceTests(unittest.TestCase):
 
 
 class ApplicationSettingsMigrationTests(unittest.TestCase):
-    def test_runner_keeps_0001_through_0005_contiguous_and_rejects_a_gap(self):
+    def test_runner_keeps_0001_through_0006_contiguous_and_rejects_a_gap(self):
         from migrations import runner
 
         self.assertEqual(
@@ -83,6 +83,7 @@ class ApplicationSettingsMigrationTests(unittest.TestCase):
                 "0003_application_resources",
                 "0004_drama_catalog",
                 "0005_application_settings_panels",
+                "0006_material_catalog",
             ],
         )
         modules_with_gap = tuple(

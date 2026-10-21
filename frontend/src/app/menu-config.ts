@@ -68,6 +68,7 @@ export const menuConfig: MenuItem[] = [
     icon: Image,
     children: [
       { id: 'creatives', label: '素材库', icon: FolderOpen, path: '/creatives', panelKey: 'creatives' },
+      { id: 'material-upload', label: '上传登记', icon: Upload, path: '/materials/upload', panelKey: 'creatives' },
       { id: 'auto-edit', label: '自动剪辑', icon: Film, path: '/auto-edit', externalUrl: cutflowUrl, panelKey: 'creatives' },
       { id: 'creative-analysis', label: '素材分析', icon: LineChart, path: '/creative-analysis', panelKey: 'creative_analysis' },
       { id: 'designer-performance', label: '设计师人效', icon: UserCheck, path: '/designer-performance', panelKey: 'designer_performance', pluginKey: 'designer_performance' },

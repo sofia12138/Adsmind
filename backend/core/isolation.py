@@ -276,6 +276,7 @@ class IsolationMiddleware:
         if scope['type'] != 'http' or not scope['path'].startswith('/api/') or scope['method'] == 'OPTIONS' or is_public(scope['method'], scope['path']):
             return await self.app(scope, receive, send)
         request = Request(scope)
+        hide_material_scope = scope['path'].startswith('/api/material-catalog')
         try:
             from auth import decode_token, get_user
             from core.tenant import get_tenant_by_id
@@ -301,14 +302,20 @@ class IsolationMiddleware:
             except (ValueError, TypeError):
                 raise HTTPException(400, '应用编号无效')
             if not app or app.tenant_id != tid or not app.is_active:
-                raise HTTPException(403, '应用不存在、已停用或不属于当前租户')
+                raise HTTPException(
+                    404 if hide_material_scope else 403,
+                    '资源不存在' if hide_material_scope else '应用不存在、已停用或不属于当前租户',
+                )
             # Tenant owners/admins administer every application in their tenant.
             # Ordinary tenant members must be explicitly assigned to the selected
             # application; merely knowing an application id never grants access.
             if member.get('role') not in ('owner', 'admin'):
                 from repositories import application_repository
                 if application_repository.get_member_role(app.id, row['id']) is None:
-                    raise HTTPException(403, '当前用户无权访问此应用')
+                    raise HTTPException(
+                        404 if hide_material_scope else 403,
+                        '资源不存在' if hide_material_scope else '当前用户无权访问此应用',
+                    )
             user = get_user(row['username'])
             if member['role'] in ('owner', 'admin'):
                 user.role = 'super_admin' if user.role == 'super_admin' and tenant.is_internal else 'admin'

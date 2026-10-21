@@ -24,6 +24,9 @@ APP_RESOURCE_REQUIREMENTS = {
     "app_execution_records": {"tenant_id", "application_id", "status"},
     "drama_masters": {"tenant_id", "normalized_title", "content_fingerprint", "revision"},
     "app_application_dramas": {"tenant_id", "application_id", "drama_id", "status"},
+    "material_masters": {"tenant_id", "drama_id", "material_type", "latest_version_number", "revision"},
+    "material_versions": {"tenant_id", "material_id", "version_number", "upload_status", "storage_backend"},
+    "app_application_materials": {"tenant_id", "application_id", "material_id", "selection_mode", "status"},
 }
 
 APP_REQUIREMENTS = APP_BASE_REQUIREMENTS | APP_RESOURCE_REQUIREMENTS
