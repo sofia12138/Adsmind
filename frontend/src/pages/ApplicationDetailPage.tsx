@@ -668,15 +668,17 @@ function AccountsTab({ app }: { app: Application }) {
         {!bound.isLoading && (bound.data ?? []).length > 0 && (
           <AccountTable
             rows={bound.data!}
-            renderAction={row => (
+            renderAction={row => app.is_default ? (
+              <span className="text-xs text-gray-400">默认归属</span>
+            ) : (
               <button
                 onClick={() => {
-                  if (confirm(`确定解绑 ${row.platform.toUpperCase()} 账号 ${row.account_name || row.account_id} ?`)) {
+                  if (confirm(`确定解绑 ${row.platform.toUpperCase()} 账号 ${row.account_name || row.account_id} ? 账号将回到默认应用。`)) {
                     unbindMutation.mutate(row.id)
                   }
                 }}
                 className="p-1.5 rounded text-gray-400 hover:bg-red-50 hover:text-red-600"
-                title="解绑"
+                title="解绑并移回默认应用"
               >
                 <Unlink className="w-3.5 h-3.5" />
               </button>

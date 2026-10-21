@@ -1,7 +1,8 @@
 import os
 import uuid
 import unittest
-from unittest.mock import patch
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from core.isolation import (
@@ -94,6 +95,113 @@ class ScopeContractTests(unittest.TestCase):
         self.assertEqual([row['version'] for row in rows], sorted(row['version'] for row in rows))
         self.assertTrue(any(row['reversible'] for row in rows))
         self.assertTrue(all(len(row['checksum']) == 64 for row in rows))
+
+    def test_account_upsert_guards_every_duplicate_update_with_both_scopes(self):
+        from core.isolation import bound_scope
+        from repositories import biz_account_repository
+        conn = MagicMock()
+        cursor = MagicMock()
+        conn.cursor.return_value = cursor
+        cursor.fetchone.return_value = {
+            'id': 9, 'tenant_id': 42, 'application_id': 73,
+        }
+        manager = MagicMock()
+        manager.__enter__.return_value = conn
+        manager.__exit__.return_value = False
+        with patch.object(biz_account_repository, 'get_biz_conn', return_value=manager):
+            with bound_scope(Scope(42, 73)):
+                self.assertEqual(
+                    biz_account_repository.upsert(
+                        platform='tiktok', account_id='account-a', app_secret='secret'
+                    ),
+                    9,
+                )
+        upsert_sql = cursor.execute.call_args_list[0].args[0]
+        self.assertIn('ON DUPLICATE KEY UPDATE', upsert_sql)
+        self.assertGreaterEqual(
+            upsert_sql.count('application_id = VALUES(application_id)'), 9
+        )
+        for column in ('currency', 'timezone', 'status', 'app_id', 'app_secret', 'raw_json'):
+            self.assertIn(f'{column}', upsert_sql)
+            self.assertIn(f'VALUES({column})', upsert_sql)
+
+    def test_application_resource_migration_resumes_a_valid_partial_run(self):
+        from migrations.versions import v0003_application_resources as migration
+
+        class Cursor:
+            def __init__(self):
+                self.tables = {'app_account_groups'}
+                self.rows = []
+
+            def execute(self, sql, args=None):
+                normalized = ' '.join(sql.split())
+                if 'INFORMATION_SCHEMA.TABLES' in normalized:
+                    self.rows = [{'TABLE_NAME': table} for table in sorted(self.tables)]
+                elif 'INFORMATION_SCHEMA.COLUMNS' in normalized:
+                    table = args[0]
+                    self.rows = [
+                        {'COLUMN_NAME': column}
+                        for column in sorted(migration._REQUIRED_COLUMNS[table])
+                    ]
+                elif 'INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS' in normalized:
+                    self.rows = [{'CONSTRAINT_NAME': args[1]}]
+                elif normalized.startswith('CREATE TABLE IF NOT EXISTS'):
+                    self.tables.add(normalized.split()[5])
+                    self.rows = []
+                else:
+                    self.rows = []
+
+            def fetchall(self):
+                return list(self.rows)
+
+            def fetchone(self):
+                return self.rows[0] if self.rows else None
+
+        cursor = Cursor()
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+
+        @contextmanager
+        def fake_conn():
+            yield conn
+
+        with patch.object(migration, 'get_app_conn', fake_conn):
+            migration.upgrade()
+        self.assertEqual(cursor.tables, set(migration._TABLES))
+        conn.commit.assert_called_once()
+
+    def test_creative_group_rejects_an_unowned_asset_reference(self):
+        from core.isolation import bound_scope
+        from repositories import asset_landing_page_repository, creative_group_repository
+        with patch.object(asset_landing_page_repository, 'get_by_id', return_value=None):
+            with bound_scope(Scope(42, 73)):
+                with self.assertRaisesRegex(ValueError, '不属于当前租户'):
+                    creative_group_repository._validate_refs([
+                        {'kind': 'landing_page', 'id': 9001},
+                    ])
+
+    def test_account_transfer_is_tenant_scoped_and_target_app_verified(self):
+        from core.isolation import bound_scope
+        from repositories import application_repository, biz_account_repository
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.rowcount = 1
+        conn.cursor.return_value = cursor
+        manager = MagicMock()
+        manager.__enter__.return_value = conn
+        manager.__exit__.return_value = False
+        target = {'id': 74, 'tenant_id': 42, 'status': 'active'}
+        with patch.object(application_repository, 'get', return_value=target), \
+             patch.object(biz_account_repository, 'get_biz_conn', return_value=manager):
+            with bound_scope(Scope(42, 73)):
+                changed = biz_account_repository.transfer_to_application(
+                    99, 74, from_application_id=73,
+                )
+        self.assertEqual(changed, 1)
+        sql, params = cursor.execute.call_args.args
+        self.assertIn('tenant_id=%s', sql)
+        self.assertIn('application_id=%s', sql)
+        self.assertEqual(params, [74, 99, 42, 73])
 
 
 @unittest.skipUnless(os.environ.get('ADSMIND_INTEGRATION_TESTS') == '1', 'Requires local database')
@@ -284,6 +392,31 @@ class TenantIsolationTests(unittest.TestCase):
                     campaign_id=self.prefix+'foreign-write', campaign_name='must not persist',
                 )
 
+        available = self.client.get(
+            '/api/applications/ad-accounts/available',
+            headers=self.same_tenant_headers,
+        )
+        self.assertIn(account_id, [row['account_id'] for row in available.json()])
+        moved = self.client.post(
+            f'/api/applications/{self.same_tenant_app}/ad-accounts/bind',
+            headers=self.same_tenant_headers,
+            json={'account_row_id': account['id']},
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertIsNone(self.client.get(
+            '/api/ad-accounts/'+str(account['id']), headers=self.headers[0]
+        ).json().get('data'))
+        unbound = self.client.post(
+            f'/api/applications/{self.same_tenant_app}/ad-accounts/unbind',
+            headers=self.same_tenant_headers,
+            json={'account_row_id': account['id']},
+        )
+        self.assertEqual(unbound.status_code, 200, unbound.text)
+        self.assertEqual(
+            self.client.get('/api/ad-accounts/'+str(account['id']), headers=self.headers[0]).json()['data']['account_id'],
+            account_id,
+        )
+
         payload = {
             'request_key': str(uuid.uuid4()),
             'payload': {
@@ -306,12 +439,27 @@ class TenantIsolationTests(unittest.TestCase):
             naming_rule_repository,
         )
 
-        cases = (
-            (account_group_repository, {'account_refs': [{'platform': 'tiktok', 'account_id': 'a'}]}),
-            (creative_group_repository, {'asset_refs': [{'asset_id': 'asset-a'}]}),
-            (naming_rule_repository, {'rule': {'pattern': '{drama}-{language}'}}),
+        from repositories import (
+            asset_landing_page_repository,
+            biz_account_repository,
         )
+
         with bound_scope(Scope(self.ids[0], self.apps[0])):
+            account_id = self.prefix+'group-account'
+            biz_account_repository.upsert(platform='tiktok', account_id=account_id)
+            asset = asset_landing_page_repository.create(
+                name=self.prefix+'group-asset',
+                landing_page_url='https://example.test/group-asset',
+            )
+            cases = (
+                (account_group_repository, {'account_refs': [{
+                    'platform': 'tiktok', 'account_id': account_id,
+                }]}),
+                (creative_group_repository, {'asset_refs': [{
+                    'kind': 'landing_page', 'id': asset['id'],
+                }]}),
+                (naming_rule_repository, {'rule': {'pattern': '{drama}-{language}'}}),
+            )
             created = []
             for repository, field in cases:
                 row = repository.create(name=self.prefix+repository.__name__, created_by=self.prefix, **field)
@@ -320,6 +468,20 @@ class TenantIsolationTests(unittest.TestCase):
                 operation='campaign.create', target_type='campaign', target_id='target-a',
                 request_payload={'name': 'safe'}, created_by=self.prefix,
             )
+
+        with bound_scope(Scope(self.ids[0], self.same_tenant_app)):
+            with self.assertRaises(ScopeNotBoundError):
+                account_group_repository.create(
+                    name=self.prefix+'foreign-account-group',
+                    account_refs=[{'platform': 'tiktok', 'account_id': account_id}],
+                )
+
+        with bound_scope(Scope(self.ids[1], self.apps[1])):
+            with self.assertRaises(ValueError):
+                creative_group_repository.create(
+                    name=self.prefix+'foreign-creative-group',
+                    asset_refs=[{'kind': 'landing_page', 'id': asset['id']}],
+                )
 
         for foreign_scope in (
             Scope(self.ids[0], self.same_tenant_app),

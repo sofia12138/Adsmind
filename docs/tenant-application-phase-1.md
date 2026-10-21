@@ -21,6 +21,9 @@
   checkpoint 和最终结果不能只按主键更新；
 - 新增账户组、创意组、命名规则、平台执行记录 repository。它们目前是数据层契约，尚未
   接入产品路由和页面，不能声称功能已经可用。
+- 账户组写入时逐项验证 `platform + account_id` 属于当前应用；素材组引用使用
+  `{"kind": "landing_page|copy_pack|region_group|tiktok_material", "id": 123}` 格式，
+  写入时验证对应租户级主档可见，执行层不得盲信 JSON 中的引用。
 
 ### 不在本阶段改造的范围
 

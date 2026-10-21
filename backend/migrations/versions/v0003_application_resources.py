@@ -16,11 +16,65 @@ _TABLES = (
     "app_execution_records",
 )
 
+_REQUIRED_COLUMNS = {
+    "app_account_groups": {"id", "tenant_id", "application_id", "name", "account_refs"},
+    "app_creative_groups": {"id", "tenant_id", "application_id", "name", "asset_refs"},
+    "app_naming_rules": {"id", "tenant_id", "application_id", "name", "rule"},
+    "app_execution_records": {"id", "tenant_id", "application_id", "operation", "status"},
+}
+
+_REQUIRED_CONSTRAINTS = {
+    "app_account_groups": "fk_account_group_application_scope",
+    "app_creative_groups": "fk_creative_group_application_scope",
+    "app_naming_rules": "fk_naming_rule_application_scope",
+    "app_execution_records": "fk_execution_application_scope",
+}
+
+
+def _existing_tables(cur) -> set[str]:
+    placeholders = ",".join(["%s"] * len(_TABLES))
+    cur.execute(
+        "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+        f"WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ({placeholders})",
+        _TABLES,
+    )
+    return {str(row["TABLE_NAME"]) for row in (cur.fetchall() or [])}
+
+
+def _assert_compatible(cur, tables: set[str]) -> None:
+    """Reject unrelated pre-existing tables before mutating the schema."""
+    for table in sorted(tables):
+        cur.execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s",
+            (table,),
+        )
+        actual = {str(row["COLUMN_NAME"]) for row in (cur.fetchall() or [])}
+        missing = _REQUIRED_COLUMNS[table] - actual
+        if missing:
+            raise RuntimeError(
+                f"{table} 已存在但结构不兼容，缺少列：{','.join(sorted(missing))}"
+            )
+        cur.execute(
+            "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS "
+            "WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME=%s "
+            "AND CONSTRAINT_NAME=%s",
+            (table, _REQUIRED_CONSTRAINTS[table]),
+        )
+        if not cur.fetchone():
+            raise RuntimeError(
+                f"{table} 已存在但缺少应用/租户外键约束"
+            )
+
 
 def upgrade() -> None:
     with get_app_conn() as conn:
         cur = conn.cursor()
-        cur.execute("""CREATE TABLE app_account_groups (
+        # MySQL DDL commits implicitly.  Valid tables from an interrupted run
+        # are retained and CREATE IF NOT EXISTS completes the remaining suffix.
+        existing = _existing_tables(cur)
+        _assert_compatible(cur, existing)
+        cur.execute("""CREATE TABLE IF NOT EXISTS app_account_groups (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
             tenant_id BIGINT NOT NULL,
             application_id BIGINT NOT NULL,
@@ -36,7 +90,7 @@ def upgrade() -> None:
               REFERENCES app_applications (id, tenant_id)
               ON UPDATE RESTRICT ON DELETE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
-        cur.execute("""CREATE TABLE app_creative_groups (
+        cur.execute("""CREATE TABLE IF NOT EXISTS app_creative_groups (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
             tenant_id BIGINT NOT NULL,
             application_id BIGINT NOT NULL,
@@ -52,7 +106,7 @@ def upgrade() -> None:
               REFERENCES app_applications (id, tenant_id)
               ON UPDATE RESTRICT ON DELETE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
-        cur.execute("""CREATE TABLE app_naming_rules (
+        cur.execute("""CREATE TABLE IF NOT EXISTS app_naming_rules (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
             tenant_id BIGINT NOT NULL,
             application_id BIGINT NOT NULL,
@@ -68,7 +122,7 @@ def upgrade() -> None:
               REFERENCES app_applications (id, tenant_id)
               ON UPDATE RESTRICT ON DELETE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
-        cur.execute("""CREATE TABLE app_execution_records (
+        cur.execute("""CREATE TABLE IF NOT EXISTS app_execution_records (
             id CHAR(36) PRIMARY KEY,
             tenant_id BIGINT NOT NULL,
             application_id BIGINT NOT NULL,
@@ -89,6 +143,7 @@ def upgrade() -> None:
               REFERENCES app_applications (id, tenant_id)
               ON UPDATE RESTRICT ON DELETE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+        _assert_compatible(cur, set(_TABLES))
         conn.commit()
 
 
@@ -96,5 +151,5 @@ def downgrade() -> None:
     with get_app_conn() as conn:
         cur = conn.cursor()
         for table in reversed(_TABLES):
-            cur.execute(f"DROP TABLE {table}")
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
         conn.commit()

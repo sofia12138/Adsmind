@@ -422,21 +422,12 @@ async def bind_ad_account(
     _ensure_same_tenant(app, tenant)
     from repositories import biz_account_repository
 
-    # 阶段 7 配额限流：检查租户级账号 distinct count 是否超额；
-    # 若该 account_id 已属于本租户其它应用，则不增加 distinct count，直接放行。
-    target_row = biz_account_repository.get_by_id(int(req.account_row_id))
-    existing_account_id = str(target_row["account_id"]) if target_row else None
-    from services import quota_service
-    quota_service.enforce_account_quota(
-        tenant.id,
-        additional=1,
-        existing_account_id=existing_account_id,
+    # 绑定是租户内应用之间的原子转移，不会增加租户账号配额。
+    affected = biz_account_repository.transfer_to_application(
+        req.account_row_id, application_id
     )
-
-    affected = biz_account_repository.bind_to_application(req.account_row_id, application_id)
     if affected == 0:
-        raise HTTPException(status_code=400,
-                            detail="绑定失败：账号不存在或 application_id 列未就绪（请先运行迁移 003）")
+        raise HTTPException(status_code=404, detail="广告账户不存在")
     log_operation(
         username=admin.username,
         action="application.bind_ad_account",
@@ -459,7 +450,16 @@ async def unbind_ad_account(
         raise HTTPException(status_code=404, detail="应用不存在")
     _ensure_same_tenant(app, tenant)
     from repositories import biz_account_repository
-    affected = biz_account_repository.bind_to_application(req.account_row_id, None)
+    if app.get("is_default"):
+        raise HTTPException(status_code=409, detail="默认应用的账号不能解绑")
+    default_app = application_repository.ensure_default_for_tenant(tenant.id)
+    affected = biz_account_repository.transfer_to_application(
+        req.account_row_id,
+        int(default_app["id"]),
+        from_application_id=application_id,
+    )
+    if affected == 0:
+        raise HTTPException(status_code=404, detail="广告账户不存在")
     log_operation(
         username=admin.username,
         action="application.unbind_ad_account",
