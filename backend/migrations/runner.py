@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from importlib import import_module
 import hashlib
 import inspect
+import re
 from typing import Callable
 
 from db import get_app_conn
@@ -15,6 +16,7 @@ MODULES = (
     "migrations.versions.v0002_scope_foreign_keys",
     "migrations.versions.v0003_application_resources",
     "migrations.versions.v0004_drama_catalog",
+    "migrations.versions.v0005_application_settings_panels",
 )
 
 
@@ -57,6 +59,23 @@ def plan() -> list[dict]:
     ]
 
 
+def _assert_contiguous_upgrade_sequence(items: list[Migration]) -> None:
+    """Reject a real upgrade before connecting when a numbered step is absent."""
+    numbers = []
+    for item in items:
+        match = re.match(r"^(\d{4})_", item.version)
+        if not match:
+            raise RuntimeError(f"迁移版本格式无效：{item.version}")
+        numbers.append(int(match.group(1)))
+    if not numbers:
+        return
+    expected = set(range(min(numbers), max(numbers) + 1))
+    missing = sorted(expected - set(numbers))
+    if missing:
+        formatted = ", ".join(f"{number:04d}" for number in missing)
+        raise RuntimeError(f"迁移序列存在缺口：缺少 {formatted}；拒绝连接数据库执行升级")
+
+
 def _ensure_history() -> None:
     with get_app_conn() as conn:
         conn.cursor().execute(
@@ -77,10 +96,12 @@ def applied() -> dict[str, str]:
 
 
 def upgrade_all() -> list[str]:
+    planned = migrations()
+    _assert_contiguous_upgrade_sequence(planned)
     _ensure_history()
     existing = applied()
     completed: list[str] = []
-    for migration in migrations():
+    for migration in planned:
         previous = existing.get(migration.version)
         if previous:
             if previous != migration.checksum:

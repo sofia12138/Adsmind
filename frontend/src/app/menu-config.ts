@@ -31,6 +31,8 @@ import {
   Upload,
   Layers,
   Library,
+  FolderCog,
+  Braces,
 } from 'lucide-react'
 import type { MenuItem } from '@/types/menu'
 import { cutflowUrl } from '@/services/cutflow'
@@ -120,6 +122,8 @@ export const menuConfig: MenuItem[] = [
     children: [
       { id: 'applications', label: '应用管理', icon: Layers, path: '/applications', panelKey: 'applications' },
       { id: 'integrations', label: '集成中心', icon: Link2, path: '/settings/integrations', panelKey: 'applications' },
+      { id: 'account-groups', label: '账户组', icon: FolderCog, path: '/settings/account-groups', panelKey: 'account_groups' },
+      { id: 'naming-rules', label: '命名规则', icon: Braces, path: '/settings/naming-rules', panelKey: 'naming_rules' },
       { id: 'team', label: '团队成员', icon: Users, path: '/team', panelKey: 'team' },
       { id: 'data-source', label: '数据源配置', icon: Database, path: '/data-source', panelKey: 'data_source' },
       { id: 'user-mgmt', label: '用户权限', icon: Users, path: '/user-mgmt', panelKey: 'user_mgmt' },
