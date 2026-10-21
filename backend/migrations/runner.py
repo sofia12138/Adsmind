@@ -14,6 +14,7 @@ MODULES = (
     "migrations.versions.v0001_legacy_baseline",
     "migrations.versions.v0002_scope_foreign_keys",
     "migrations.versions.v0003_application_resources",
+    "migrations.versions.v0004_drama_catalog",
 )
 
 
