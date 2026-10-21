@@ -23,12 +23,14 @@ import {
   Film,
   UserCheck,
   BookUser,
+  BookOpen,
   Crown,
   Package,
   Link2,
   Globe,
   Upload,
   Layers,
+  Library,
 } from 'lucide-react'
 import type { MenuItem } from '@/types/menu'
 import { cutflowUrl } from '@/services/cutflow'
@@ -48,6 +50,14 @@ export const menuConfig: MenuItem[] = [
       { id: 'ads-drafts', label: '广告草稿', icon: PlusCircle, path: '/ads/drafts', panelKey: 'ad_create' },
       { id: 'ads-create', label: '新建广告', icon: PlusCircle, path: '/ads/create', panelKey: 'ad_create' },
       { id: 'templates', label: '模板管理', icon: FileText, path: '/templates', panelKey: 'template_mgmt' },
+    ],
+  },
+  {
+    id: 'content-library',
+    label: '内容资产',
+    icon: Library,
+    children: [
+      { id: 'drama-catalog', label: '剧目库', icon: BookOpen, path: '/drama-catalog', panelKey: 'creatives' },
     ],
   },
   {

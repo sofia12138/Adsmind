@@ -44,6 +44,7 @@ import ApplicationsListPage from '@/pages/ApplicationsListPage'
 import ApplicationDetailPage from '@/pages/ApplicationDetailPage'
 import IntegrationsPage from '@/pages/IntegrationsPage'
 import PlatformAuthorizationPage from '@/pages/PlatformAuthorizationPage'
+import DramaCatalogPage from '@/features/drama-catalog/DramaCatalogPage'
 
 function G({ panelKey, children }: { panelKey: string; children: React.ReactNode }) {
   return <AuthGuard panelKey={panelKey}>{children}</AuthGuard>
@@ -77,6 +78,7 @@ export const router = createBrowserRouter([
       // 旧链接兼容：保留 ?template_id= 透传，重定向到统一新建广告页
       { path: 'ads/create-tiktok-minis', element: <RedirectKeepQuery to="/ads/create" /> },
       { path: 'templates',          element: <G panelKey="template_mgmt"><TemplatesPage /></G> },
+      { path: 'drama-catalog',      element: <G panelKey="creatives"><DramaCatalogPage /></G> },
       { path: 'creatives',          element: <G panelKey="creatives"><CreativesPage /></G> },
       { path: 'auto-edit',          element: <G panelKey="creatives"><AutoEditPage /></G> },
       { path: 'distribution/youtube', element: <G panelKey="creatives"><DistributionPage section="tasks" /></G> },

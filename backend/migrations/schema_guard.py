@@ -22,6 +22,8 @@ APP_RESOURCE_REQUIREMENTS = {
     "app_creative_groups": {"tenant_id", "application_id", "asset_refs"},
     "app_naming_rules": {"tenant_id", "application_id", "rule"},
     "app_execution_records": {"tenant_id", "application_id", "status"},
+    "drama_masters": {"tenant_id", "normalized_title", "content_fingerprint", "revision"},
+    "app_application_dramas": {"tenant_id", "application_id", "drama_id", "status"},
 }
 
 APP_REQUIREMENTS = APP_BASE_REQUIREMENTS | APP_RESOURCE_REQUIREMENTS
