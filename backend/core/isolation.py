@@ -319,7 +319,10 @@ class IsolationMiddleware:
             # Tenant owners/admins administer every application in their tenant.
             # Ordinary tenant members must be explicitly assigned to the selected
             # application; merely knowing an application id never grants access.
-            if member.get('role') not in ('owner', 'admin'):
+            listing_accessible_applications = (
+                scope['method'] == 'GET' and scope['path'].rstrip('/') == '/api/applications'
+            )
+            if member.get('role') not in ('owner', 'admin') and not listing_accessible_applications:
                 from repositories import application_repository
                 if application_repository.get_member_role(app.id, row['id']) is None:
                     raise HTTPException(
@@ -335,7 +338,10 @@ class IsolationMiddleware:
             request.state.verified_user = user
             # Internal business sources are not customer-owned SaaS data.
             internal_only = ('/api/bizdata', '/api/ops', '/api/attribution', '/api/optimizer', '/api/drama', '/api/designer', '/api/analysis', '/api/insight')
-            if not tenant.is_internal and any(scope['path'].startswith(p) for p in internal_only):
+            if not tenant.is_internal and any(
+                scope['path'] == prefix or scope['path'].startswith(prefix + '/')
+                for prefix in internal_only
+            ):
                 raise HTTPException(403, '此功能仅供内部租户使用')
             if scope['path'] in ('/api/auth/authorize', '/api/auth/callback'):
                 raise HTTPException(404, '请使用集成中心授权')

@@ -62,6 +62,7 @@ interface AuthState {
   tenant: TenantInfo
   applications: Application[]
   currentApplication: Application | null
+  applicationsLoaded: boolean
   loaded: boolean
 }
 
@@ -83,6 +84,8 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+// Hook and provider intentionally share the context module.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')
@@ -120,6 +123,7 @@ function loadFromStorage(): AuthState {
       tenant,
       applications: [],
       currentApplication: null,
+      applicationsLoaded: false,
       loaded: !!token,
     }
   } catch {
@@ -130,6 +134,7 @@ function loadFromStorage(): AuthState {
       tenant: DEFAULT_INTERNAL_TENANT,
       applications: [],
       currentApplication: null,
+      applicationsLoaded: false,
       loaded: false,
     }
   }
@@ -217,9 +222,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem('current_application_id', String(current.id))
         }
       }
-      setState(s => ({ ...s, applications: apps, currentApplication: current }))
+      setState(s => ({ ...s, applications: apps, currentApplication: current, applicationsLoaded: true }))
+      if (current && !storedId) {
+        window.location.reload()
+      }
     } catch {
-      // 静默：未登录或后端不可用时保持空列表
+      // 未登录或后端不可用时保持加载态；不能把依赖故障误报为“未分配应用”。
     }
   }, [])
 
@@ -249,6 +257,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tenant: DEFAULT_INTERNAL_TENANT,
       applications: [],
       currentApplication: null,
+      applicationsLoaded: false,
       loaded: false,
     })
   }, [queryClient])

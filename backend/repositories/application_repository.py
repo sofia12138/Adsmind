@@ -119,6 +119,29 @@ def list_by_tenant(tenant_id: int, include_archived: bool = False) -> list[dict]
     return [_row_to_dict(r) for r in rows]
 
 
+def list_by_tenant_for_user(
+    tenant_id: int, user_id: int, include_archived: bool = False
+) -> list[dict]:
+    """Return only applications explicitly assigned to an ordinary tenant member."""
+    status_clause = "" if include_archived else "AND a.status = 'active'"
+    with get_app_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"""SELECT a.id, a.tenant_id, a.slug, a.name, a.description, a.icon_url,
+                       a.platform_type, a.bundle_id, a.store_url_ios, a.store_url_android,
+                       a.industry, a.status, a.is_default, a.settings_json,
+                       a.created_by, a.created_at, a.updated_at
+                FROM app_applications a
+                INNER JOIN app_application_members m
+                        ON m.application_id = a.id AND m.user_id = %s
+                WHERE a.tenant_id = %s {status_clause}
+                ORDER BY a.is_default DESC, a.id ASC""",
+            (user_id, tenant_id),
+        )
+        rows = cur.fetchall() or []
+    return [_row_to_dict(r) for r in rows]
+
+
 # ── 写入 ──────────────────────────────────────────────────────────
 
 def create(tenant_id: int, name: str, *,

@@ -2,6 +2,7 @@ import os
 import uuid
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -39,6 +40,11 @@ class SQLBoundaryTests(unittest.TestCase):
 
 
 class ScopeContractTests(unittest.TestCase):
+    def test_internal_route_prefixes_do_not_capture_customer_catalog_routes(self):
+        source = Path(__file__).parents[1].joinpath("core/isolation.py").read_text(encoding="utf-8")
+        self.assertIn("scope['path'] == prefix", source)
+        self.assertIn("scope['path'].startswith(prefix + '/')", source)
+
     def test_missing_scope_never_defaults_to_internal_tenant(self):
         self.assertIsNone(current_scope.get())
         with self.assertRaises(ScopeNotBoundError):

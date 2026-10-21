@@ -151,27 +151,51 @@ def _ensure_same_tenant(application: dict, tenant: TenantCtx) -> None:
         raise HTTPException(status_code=404, detail="应用不存在")
 
 
+def _tenant_role(tenant: TenantCtx, user: User) -> tuple[Optional[int], Optional[str]]:
+    from repositories import tenant_member_repository
+    user_id = _user_id_of(user)
+    member = tenant_member_repository.get(tenant.id, user_id) if user_id else None
+    return user_id, member.get("role") if member else None
+
+
+def _ensure_application_visible(application: dict, tenant: TenantCtx, user: User) -> None:
+    """Hide same-tenant applications that are not assigned to an ordinary member."""
+    _ensure_same_tenant(application, tenant)
+    user_id, tenant_role = _tenant_role(tenant, user)
+    if tenant_role in ("owner", "admin"):
+        return
+    if not user_id or application_repository.get_member_role(application["id"], user_id) is None:
+        raise HTTPException(status_code=404, detail="应用不存在")
+
+
 # ── CRUD ─────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[ApplicationOut], summary="列出当前租户的全部应用")
 async def list_applications(
     include_archived: bool = False,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     tenant: TenantCtx = Depends(get_current_tenant),
 ):
+    user_id, tenant_role = _tenant_role(tenant, user)
+    if tenant_role not in ("owner", "admin"):
+        if not user_id:
+            return []
+        return application_repository.list_by_tenant_for_user(
+            tenant.id, user_id, include_archived=include_archived
+        )
     return application_repository.list_by_tenant(tenant.id, include_archived=include_archived)
 
 
 @router.get("/{application_id}", response_model=ApplicationOut, summary="查看应用详情")
 async def get_application(
     application_id: int,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     tenant: TenantCtx = Depends(get_current_tenant),
 ):
     app = application_repository.get(application_id)
     if not app:
         raise HTTPException(status_code=404, detail="应用不存在")
-    _ensure_same_tenant(app, tenant)
+    _ensure_application_visible(app, tenant, user)
     return app
 
 
@@ -295,13 +319,13 @@ async def restore_application(
             summary="列出应用成员")
 async def list_application_members(
     application_id: int,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     tenant: TenantCtx = Depends(get_current_tenant),
 ):
     app = application_repository.get(application_id)
     if not app:
         raise HTTPException(status_code=404, detail="应用不存在")
-    _ensure_same_tenant(app, tenant)
+    _ensure_application_visible(app, tenant, user)
     return application_repository.list_members(application_id)
 
 
@@ -387,13 +411,13 @@ async def remove_application_member(
             summary="列出绑定到该应用的广告账号")
 async def list_application_ad_accounts(
     application_id: int,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     tenant: TenantCtx = Depends(get_current_tenant),
 ):
     app = application_repository.get(application_id)
     if not app:
         raise HTTPException(status_code=404, detail="应用不存在")
-    _ensure_same_tenant(app, tenant)
+    _ensure_application_visible(app, tenant, user)
     from repositories import biz_account_repository
     rows = biz_account_repository.list_by_application(application_id)
     return rows

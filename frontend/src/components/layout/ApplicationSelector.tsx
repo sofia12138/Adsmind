@@ -24,7 +24,7 @@ export function ApplicationSelector() {
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [open])
 
-  const showName = currentApplication?.name ?? '默认应用'
+  const showName = currentApplication?.name ?? '未分配应用'
   const showIndustry = currentApplication?.industry || ''
 
   return (

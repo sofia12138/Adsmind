@@ -26,9 +26,21 @@ function PreviewBanner() {
 function InnerLayout() {
   const location = useLocation()
   const token = localStorage.getItem('auth_token')
+  const { applicationsLoaded, currentApplication } = useAuth()
 
   if (!token && location.pathname !== '/login') {
     return <Navigate to="/login" replace />
+  }
+
+  if (token && applicationsLoaded && !currentApplication) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-lg font-semibold text-slate-900">尚未分配应用</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-500">你的账号已加入当前团队，但还没有可访问的应用。请联系团队管理员完成应用分配后再试。</p>
+        </div>
+      </div>
+    )
   }
 
   return (
