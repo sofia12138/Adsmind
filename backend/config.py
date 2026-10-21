@@ -3,6 +3,19 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
+    # 素材对象存储。默认仅写入项目内的本地开发目录；云后端只暴露配置契约，
+    # 本仓库不携带云凭证，也不会在未配置时尝试连接外部服务。
+    material_storage_backend: str = "local"
+    material_storage_local_root: str = ".local/material-storage"
+    material_storage_max_bytes: int = 5 * 1024 * 1024 * 1024
+    material_upload_session_ttl_seconds: int = 3600
+    material_upload_part_size_bytes: int = 8 * 1024 * 1024
+    material_storage_endpoint: str = ""
+    material_storage_region: str = ""
+    material_storage_bucket: str = ""
+    material_storage_access_key_id: str = ""
+    material_storage_access_key_secret: str = ""
+    material_storage_path_style: bool = False
     tiktok_app_id: str = ""
     tiktok_app_secret: str = ""
     tiktok_access_token: str = ""

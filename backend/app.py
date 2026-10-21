@@ -511,6 +511,7 @@ def _register_routers(application: FastAPI):
     from routes.distribution import router as distribution_router
     from drama_catalog.routes import router as drama_catalog_router
     from material_catalog.routes import router as material_catalog_router
+    from material_uploads.routes import router as material_uploads_router
     from creative_groups.routes import router as creative_groups_router
     from ad_creation.routes import router as ad_creation_router
     from platform_preflight.routes import router as platform_preflight_router
@@ -520,6 +521,7 @@ def _register_routers(application: FastAPI):
     for r in [
         drama_catalog_router,
         material_catalog_router,
+        material_uploads_router,
         creative_groups_router,
         ad_creation_router,
         platform_preflight_router,

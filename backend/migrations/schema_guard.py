@@ -36,6 +36,9 @@ APP_RESOURCE_REQUIREMENTS = {
     "app_application_dramas": {"tenant_id", "application_id", "drama_id", "status"},
     "material_masters": {"tenant_id", "drama_id", "material_type", "latest_version_number", "revision"},
     "material_versions": {"tenant_id", "material_id", "version_number", "upload_status", "storage_backend"},
+    "app_material_uploads": {"tenant_id", "application_id", "material_id", "version_id", "status", "idempotency_key", "storage_key"},
+    "app_material_upload_parts": {"tenant_id", "application_id", "upload_id", "part_number", "status"},
+    "app_material_upload_audit": {"tenant_id", "application_id", "upload_id", "event_type"},
     "app_application_materials": {"tenant_id", "application_id", "material_id", "selection_mode", "status"},
 }
 
