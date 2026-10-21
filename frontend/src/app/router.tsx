@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- router config intentionally owns small route elements */
 import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom'
 import { MainLayout } from '@/components/layout/main-layout'
 import { AuthGuard } from '@/components/auth/AuthGuard'

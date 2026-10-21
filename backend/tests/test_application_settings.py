@@ -72,10 +72,26 @@ class NamingRuleServiceTests(unittest.TestCase):
 
 
 class ApplicationSettingsMigrationTests(unittest.TestCase):
-    def test_runner_rejects_the_0004_gap_before_connecting(self):
+    def test_runner_keeps_0001_through_0005_contiguous_and_rejects_a_gap(self):
         from migrations import runner
 
-        with patch.object(runner, "get_app_conn") as get_conn:
+        self.assertEqual(
+            [row["version"] for row in runner.plan()],
+            [
+                "0001_legacy_baseline",
+                "0002_scope_foreign_keys",
+                "0003_application_resources",
+                "0004_drama_catalog",
+                "0005_application_settings_panels",
+            ],
+        )
+        modules_with_gap = tuple(
+            module for module in runner.MODULES if ".v0004_" not in module
+        )
+        with (
+            patch.object(runner, "MODULES", modules_with_gap),
+            patch.object(runner, "get_app_conn") as get_conn,
+        ):
             with self.assertRaisesRegex(RuntimeError, "缺少 0004"):
                 runner.upgrade_all()
         get_conn.assert_not_called()
