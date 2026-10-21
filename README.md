@@ -17,6 +17,8 @@ adpilot/
 
 详细结构说明见 [docs/project-structure.md](docs/project-structure.md)。
 
+统一完成等级、接口与网页验收要求见 [docs/acceptance-standard.md](docs/acceptance-standard.md)。每项功能需基于 [docs/acceptance/TEMPLATE.md](docs/acceptance/TEMPLATE.md) 提交独立验收记录。
+
 平台执行预检、dry-run 与外部写入隔离契约见 [docs/platform-preflight.md](docs/platform-preflight.md)。
 
 ## 本地开发
