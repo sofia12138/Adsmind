@@ -17,6 +17,8 @@ adpilot/
 
 详细结构说明见 [docs/project-structure.md](docs/project-structure.md)。
 
+平台执行预检、dry-run 与外部写入隔离契约见 [docs/platform-preflight.md](docs/platform-preflight.md)。
+
 ## 本地开发
 
 ### 后端

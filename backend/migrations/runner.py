@@ -20,6 +20,7 @@ MODULES = (
     "migrations.versions.v0006_material_catalog",
     "migrations.versions.v0007_creative_groups",
     "migrations.versions.v0008_ad_creation_drafts",
+    "migrations.versions.v0009_platform_preflight",
 )
 
 

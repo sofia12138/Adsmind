@@ -34,6 +34,7 @@ import {
   Library,
   FolderCog,
   Braces,
+  FileSearch,
 } from 'lucide-react'
 import type { MenuItem } from '@/types/menu'
 import { cutflowUrl } from '@/services/cutflow'
@@ -52,6 +53,7 @@ export const menuConfig: MenuItem[] = [
       { id: 'meta-console', label: 'Meta操作台', icon: Monitor, path: '/console/meta', panelKey: 'meta_console' },
       { id: 'ads-drafts', label: '广告草稿', icon: PlusCircle, path: '/ads/drafts', panelKey: 'ad_create' },
       { id: 'app-ad-drafts', label: '应用广告草稿', icon: FileText, path: '/ads/app-drafts', panelKey: 'ad_creation_drafts' },
+      { id: 'platform-preflight', label: '平台执行预检', icon: FileSearch, path: '/ads/platform-preflight', panelKey: 'platform_preflight' },
       { id: 'ads-create', label: '新建广告', icon: PlusCircle, path: '/ads/create', panelKey: 'ad_create' },
       { id: 'templates', label: '模板管理', icon: FileText, path: '/templates', panelKey: 'template_mgmt' },
     ],
