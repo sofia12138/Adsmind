@@ -46,19 +46,25 @@ class _Connection:
 
 
 class ValidationTests(unittest.TestCase):
-    def test_master_normalizes_lists_and_rejects_unsafe_cover(self):
+    def test_master_cleans_display_fields_and_parses_launch_date(self):
         row = service.MasterInput(
-            title="  My   Drama ", aliases=["Alias", " alias ", "别名"], genres=["Romance", "Romance"]
+            title="  My   Drama ", chinese_title=" 我的   短剧 ", language=" 英语 ",
+            launched_at="2026-10-21", catalog_type="self_operated",
         )
         self.assertEqual(row.title, "My Drama")
-        self.assertEqual(row.aliases, ["Alias", "别名"])
-        self.assertEqual(row.genres, ["Romance"])
+        self.assertEqual(row.chinese_title, "我的 短剧")
+        self.assertEqual(row.language, "英语")
+        self.assertEqual(row.launched_at.isoformat(), "2026-10-21")
         with self.assertRaises(ValidationError):
-            service.MasterInput(title="Drama", cover_url="https://user:secret@example.com/cover.jpg")
+            service.MasterInput(
+                title="Drama", chinese_title="短剧", language="英语", catalog_type="partner",
+            )
 
     def test_update_requires_revision_and_reference_status_is_bounded(self):
         with self.assertRaises(ValidationError):
-            service.MasterUpdate(title="Drama")
+            service.MasterUpdate(
+                title="Drama", chinese_title="短剧", language="英语", catalog_type="distribution",
+            )
         with self.assertRaises(ValidationError):
             service.ReferenceInput(drama_id=1, status="deleted")
 
@@ -83,6 +89,16 @@ class RepositoryScopeTests(unittest.TestCase):
         sql, args = cursor.calls[0]
         self.assertIn("WHERE tenant_id=%s AND id=%s", sql)
         self.assertEqual(args, (41, 7))
+
+    def test_list_filters_tenant_and_catalog_type(self):
+        cursor = _Cursor([{"total": 0}])
+        with bound_scope(Scope(41, 8)), patch.object(repository, "get_app_conn", return_value=_Connection(cursor)):
+            result = repository.search_masters("秘密", "distribution", 1, 20)
+        self.assertEqual(result["items"], [])
+        for sql, args in cursor.calls:
+            self.assertIn("tenant_id=%s AND catalog_type=%s", sql)
+            self.assertEqual(args[:2], (41, "distribution"))
+        self.assertIn("chinese_title LIKE %s", cursor.calls[0][0])
 
     def test_attach_checks_master_tenant_inside_the_insert(self):
         insert = _Cursor(rowcount=1)
@@ -125,6 +141,14 @@ class RepositoryScopeTests(unittest.TestCase):
         self.assertIn("UNIQUE KEY uq_application_drama (tenant_id, application_id, drama_id)", source)
         self.assertIn("FOREIGN KEY (drama_id, tenant_id)", source)
         self.assertLess(source.index('DROP TABLE app_application_dramas'), source.index('DROP TABLE drama_masters'))
+
+        from migrations.versions import v0005_drama_catalog_display_fields as display_migration
+        display_source = Path(display_migration.__file__).read_text(encoding="utf-8")
+        self.assertTrue(display_migration.REVERSIBLE)
+        self.assertIn("chinese_title", display_source)
+        self.assertIn("catalog_type", display_source)
+        self.assertIn("launched_at", display_source)
+        self.assertIn("DROP INDEX idx_drama_catalog_list", display_source)
 
 
 if __name__ == "__main__":

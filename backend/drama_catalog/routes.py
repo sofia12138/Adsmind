@@ -28,8 +28,9 @@ def writer(user: User = Depends(reader)) -> User:
 def search_masters(
     query: str = Query(default="", max_length=255), page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100), _: User = Depends(reader),
+    catalog_type: str = Query(pattern="^(self_operated|distribution)$"),
 ):
-    return repository.search_masters(query.strip(), page, page_size)
+    return repository.search_masters(query.strip(), catalog_type, page, page_size)
 
 
 @router.post("/masters", status_code=201)

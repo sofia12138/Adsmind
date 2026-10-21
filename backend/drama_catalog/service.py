@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 import unicodedata
-from urllib.parse import urlparse
+from datetime import date
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -13,63 +13,24 @@ from pydantic import BaseModel, Field, field_validator
 from . import repository
 
 
-def _clean_list(values: list[str]) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        clean = " ".join(value.strip().split())
-        key = unicodedata.normalize("NFKC", clean).casefold()
-        if clean and key not in seen:
-            seen.add(key)
-            result.append(clean)
-    return result
-
-
 def normalize_title(value: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value).strip()).casefold()
 
 
-def _validate_cover(value: str) -> str:
-    value = value.strip()
-    if not value:
-        return ""
-    parsed = urlparse(value)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.username or parsed.password:
-        raise ValueError("封面地址必须是有效的 HTTP(S) URL")
-    return value
-
-
 class MasterInput(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    aliases: list[str] = Field(default_factory=list, max_length=50)
-    original_language: str = Field(default="", max_length=32)
-    region: str = Field(default="", max_length=64)
-    genres: list[str] = Field(default_factory=list, max_length=20)
-    synopsis: str = Field(default="", max_length=5000)
-    cover_url: str = Field(default="", max_length=1024)
+    chinese_title: str = Field(min_length=1, max_length=255)
+    language: str = Field(min_length=1, max_length=32)
+    launched_at: date | None = None
+    catalog_type: str = Field(pattern="^(self_operated|distribution)$")
 
-    @field_validator("title")
+    @field_validator("title", "chinese_title", "language")
     @classmethod
-    def valid_title(cls, value: str) -> str:
+    def clean_required_text(cls, value: str) -> str:
         clean = " ".join(value.strip().split())
         if not clean:
-            raise ValueError("剧名不能为空")
+            raise ValueError("字段不能为空")
         return clean
-
-    @field_validator("aliases", "genres")
-    @classmethod
-    def clean_lists(cls, value: list[str]) -> list[str]:
-        return _clean_list(value)
-
-    @field_validator("cover_url")
-    @classmethod
-    def valid_cover(cls, value: str) -> str:
-        return _validate_cover(value)
-
-    @field_validator("original_language", "region", "synopsis")
-    @classmethod
-    def trim_text(cls, value: str) -> str:
-        return value.strip()
 
 
 class MasterUpdate(MasterInput):
@@ -103,11 +64,17 @@ def _master_values(data: MasterInput, username: str = "") -> dict:
     normalized = normalize_title(data.title)
     fingerprint_payload = {
         "title": normalized,
-        "aliases": sorted(normalize_title(x) for x in data.aliases),
-        "original_language": data.original_language.casefold(),
+        "chinese_title": normalize_title(data.chinese_title),
+        "language": data.language.casefold(),
     }
     return {
         **data.model_dump(),
+        "aliases": [],
+        "original_language": data.language,
+        "region": "",
+        "genres": [],
+        "synopsis": "",
+        "cover_url": "",
         "normalized_title": normalized,
         "content_fingerprint": hashlib.sha256(
             json.dumps(fingerprint_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

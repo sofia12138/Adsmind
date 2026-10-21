@@ -15,6 +15,7 @@ def _decode(row: dict | None) -> dict | None:
     for field in ("aliases", "genres"):
         if isinstance(result.get(field), str):
             result[field] = json.loads(result[field])
+    result["language"] = result.get("original_language", "")
     return result
 
 
@@ -28,12 +29,14 @@ def create_master(values: dict[str, Any]) -> dict:
         cur = conn.cursor()
         cur.execute(
             """INSERT INTO drama_masters
-               (tenant_id, title, normalized_title, aliases, original_language,
-                region, genres, synopsis, cover_url, content_fingerprint, created_by)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-            (scope.tenant_id, values["title"], values["normalized_title"],
+               (tenant_id, catalog_type, title, chinese_title, normalized_title, aliases,
+                original_language, launched_at, region, genres, synopsis, cover_url,
+                content_fingerprint, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (scope.tenant_id, values["catalog_type"], values["title"], values["chinese_title"],
+             values["normalized_title"],
              json.dumps(values["aliases"], ensure_ascii=False), values["original_language"],
-             values["region"], json.dumps(values["genres"], ensure_ascii=False),
+             values["launched_at"], values["region"], json.dumps(values["genres"], ensure_ascii=False),
              values["synopsis"], values["cover_url"], values["content_fingerprint"],
              values["created_by"]),
         )
@@ -65,19 +68,19 @@ def find_duplicate(normalized_title: str, fingerprint: str, *, exclude_id: int |
         return cur.fetchone()
 
 
-def search_masters(query: str, page: int, page_size: int) -> dict:
+def search_masters(query: str, catalog_type: str, page: int, page_size: int) -> dict:
     scope = require_scope()
-    where = "tenant_id=%s"
-    args: list[Any] = [scope.tenant_id]
+    where = "tenant_id=%s AND catalog_type=%s"
+    args: list[Any] = [scope.tenant_id, catalog_type]
     if query:
-        where += " AND (title LIKE %s OR JSON_SEARCH(aliases, 'one', %s) IS NOT NULL)"
+        where += " AND (title LIKE %s OR chinese_title LIKE %s)"
         args.extend((f"%{query}%", f"%{query}%"))
     with get_app_conn() as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT COUNT(*) AS total FROM drama_masters WHERE {where}", args)
         total = int(cur.fetchone()["total"])
         cur.execute(
-            f"SELECT * FROM drama_masters WHERE {where} ORDER BY updated_at DESC, id DESC LIMIT %s OFFSET %s",
+            f"SELECT * FROM drama_masters WHERE {where} ORDER BY launched_at DESC, id DESC LIMIT %s OFFSET %s",
             [*args, page_size, (page - 1) * page_size],
         )
         return _page(cur.fetchall() or [], total, page, page_size)
@@ -88,12 +91,15 @@ def update_master(master_id: int, values: dict[str, Any], revision: int) -> dict
     with get_app_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            """UPDATE drama_masters SET title=%s, normalized_title=%s, aliases=%s,
-               original_language=%s, region=%s, genres=%s, synopsis=%s, cover_url=%s,
+            """UPDATE drama_masters SET catalog_type=%s, title=%s, chinese_title=%s,
+               normalized_title=%s, aliases=%s, original_language=%s, launched_at=%s,
+               region=%s, genres=%s, synopsis=%s, cover_url=%s,
                content_fingerprint=%s, revision=revision+1
                WHERE tenant_id=%s AND id=%s AND revision=%s""",
-            (values["title"], values["normalized_title"], json.dumps(values["aliases"], ensure_ascii=False),
-             values["original_language"], values["region"], json.dumps(values["genres"], ensure_ascii=False),
+            (values["catalog_type"], values["title"], values["chinese_title"],
+             values["normalized_title"], json.dumps(values["aliases"], ensure_ascii=False),
+             values["original_language"], values["launched_at"], values["region"],
+             json.dumps(values["genres"], ensure_ascii=False),
              values["synopsis"], values["cover_url"], values["content_fingerprint"],
              scope.tenant_id, master_id, revision),
         )
@@ -158,7 +164,8 @@ def get_reference(master_id: int) -> dict | None:
         cur.execute(
             """SELECT r.id AS reference_id, r.application_id, r.drama_id, r.display_title,
                       r.status AS reference_status, r.notes, r.created_at AS attached_at,
-                      d.title, d.aliases, d.original_language, d.region, d.genres,
+                      d.catalog_type, d.title, d.chinese_title, d.aliases,
+                      d.original_language, d.launched_at, d.region, d.genres,
                       d.synopsis, d.cover_url, d.revision
                FROM app_application_dramas r
                JOIN drama_masters d ON d.id=r.drama_id AND d.tenant_id=r.tenant_id
@@ -185,7 +192,8 @@ def list_references(query: str, page: int, page_size: int) -> dict:
         cur.execute(
             f"""SELECT r.id AS reference_id, r.application_id, r.drama_id, r.display_title,
                        r.status AS reference_status, r.notes, r.created_at AS attached_at,
-                       d.title, d.aliases, d.original_language, d.region, d.genres,
+                       d.catalog_type, d.title, d.chinese_title, d.aliases,
+                       d.original_language, d.launched_at, d.region, d.genres,
                        d.synopsis, d.cover_url, d.revision
                 FROM app_application_dramas r
                 JOIN drama_masters d ON d.id=r.drama_id AND d.tenant_id=r.tenant_id

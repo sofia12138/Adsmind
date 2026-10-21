@@ -15,6 +15,7 @@ MODULES = (
     "migrations.versions.v0002_scope_foreign_keys",
     "migrations.versions.v0003_application_resources",
     "migrations.versions.v0004_drama_catalog",
+    "migrations.versions.v0005_drama_catalog_display_fields",
 )
 
 
