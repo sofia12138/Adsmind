@@ -113,7 +113,6 @@ class DurableDraftTests(unittest.IsolatedAsyncioTestCase):
         self.tpl_patch.start()
         self.check_patch = patch('services.launch_draft_service.precheck', return_value={'ok': True, 'checks': []})
         self.check_patch.start()
-        service.init_table()
 
     async def asyncTearDown(self):
         from db import get_app_conn

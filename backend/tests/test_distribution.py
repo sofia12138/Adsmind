@@ -52,17 +52,33 @@ class ValidationTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get('ADSMIND_INTEGRATION_TESTS') == '1', 'Requires local database')
 class StorageTests(unittest.TestCase):
     def setUp(self):
-        self.a = SimpleNamespace(tenant_id=1, id=987654321)
-        self.other_app = SimpleNamespace(tenant_id=1, id=987654322)
-        self.other_tenant = SimpleNamespace(tenant_id=987654321, id=987654321)
+        from repositories import application_repository, tenant_repository
+        self.prefix = 'distribution-test-'+uuid.uuid4().hex
+        tenant_a = tenant_repository.create(
+            slug=self.prefix+'-a', name='Distribution test A', plan_id='pro'
+        )
+        tenant_b = tenant_repository.create(
+            slug=self.prefix+'-b', name='Distribution test B', plan_id='pro'
+        )
+        app_a = application_repository.create(tenant_a['id'], 'Application A', is_default=True)
+        app_a2 = application_repository.create(tenant_a['id'], 'Application A2')
+        app_b = application_repository.create(tenant_b['id'], 'Application B', is_default=True)
+        self.tenant_ids = (tenant_a['id'], tenant_b['id'])
+        self.a = SimpleNamespace(tenant_id=tenant_a['id'], id=app_a['id'])
+        self.other_app = SimpleNamespace(tenant_id=tenant_a['id'], id=app_a2['id'])
+        self.other_tenant = SimpleNamespace(tenant_id=tenant_b['id'], id=app_b['id'])
         self.user = SimpleNamespace(username='_distribution_test')
-        s.init_tables()
 
     def tearDown(self):
         from db import get_app_conn
         with get_app_conn() as conn:
+            cur = conn.cursor()
             for table in ('app_distribution_drafts', 'app_distribution_channels'):
-                conn.cursor().execute(f'DELETE FROM {table} WHERE tenant_id=%s AND application_id=%s', (self.a.tenant_id, self.a.id))
+                for tenant_id in self.tenant_ids:
+                    cur.execute(f'DELETE FROM {table} WHERE tenant_id=%s', (tenant_id,))
+            for tenant_id in self.tenant_ids:
+                cur.execute('DELETE FROM app_applications WHERE tenant_id=%s', (tenant_id,))
+                cur.execute('DELETE FROM app_tenants WHERE id=%s', (tenant_id,))
             conn.commit()
 
     def test_persistence_revision_and_cross_scope_isolation(self):

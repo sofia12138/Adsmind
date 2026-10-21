@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import tempfile
 import time
 from pathlib import Path
@@ -20,10 +19,6 @@ router = APIRouter(prefix="/materials/tiktok", tags=["TikTok 素材上传"])
 _ALLOWED_VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 _VIDEO_MAX = 1024 * 1024 * 1024  # 1 GB
 _RECV_CHUNK = 4 * 1024 * 1024  # 4MB，减少 syscall 次数
-
-# 优先使用内存盘（Linux tmpfs），避免落到云盘；Windows / 无 /dev/shm 时回退默认 tmp
-_TMP_DIR = "/dev/shm" if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK) else None
-
 
 @router.post("/upload")
 async def upload_video(
@@ -54,7 +49,9 @@ async def upload_video(
     try:
         md5 = hashlib.md5()
         recv_t0 = time.time()
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir=_TMP_DIR) as tmp:
+        from core.isolation import scoped_temp_dir
+        tmp_dir = scoped_temp_dir("tiktok-uploads")
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir=tmp_dir) as tmp:
             tmp_path = tmp.name
             file_size = 0
             while True:
@@ -78,7 +75,7 @@ async def upload_video(
         logger.info(
             f"[tiktok-materials] 文件缓存完成: size={file_size} "
             f"({file_size / 1024 / 1024:.1f}MB), duration={duration_sec}s, "
-            f"recv={recv_ms}ms, tmp_dir={_TMP_DIR or 'system_default'}, md5={precomputed_md5}"
+            f"recv={recv_ms}ms, tmp_dir={tmp_dir}, md5={precomputed_md5}"
         )
 
         record = await tiktok_material_service.upload_video(

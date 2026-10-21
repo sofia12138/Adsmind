@@ -28,50 +28,51 @@ def _empty_state():
     }
 
 
-_states: dict[int, dict] = {}
+_states: dict[tuple[int, int], dict] = {}
 
-def _state_for_tenant():
-    from core.isolation import tenant_id
-    return _states.setdefault(tenant_id(), _empty_state())
+def _state_for_scope():
+    from core.isolation import require_scope
+    scope = require_scope(application=True)
+    return _states.setdefault((scope.tenant_id, scope.application_id), _empty_state())
 
 
 # 全局"是否有任何模块正在运行"的快捷属性
 def is_any_running() -> bool:
-    return any(_state_for_tenant()[m]["is_running"] for m in MODULES)
+    return any(_state_for_scope()[m]["is_running"] for m in MODULES)
 
 
 # ── 单模块操作 ─────────────────────────────────────────────
 
 def set_running(module: str, running: bool, date_range: Optional[str] = None):
-    if module not in _state_for_tenant():
+    if module not in _state_for_scope():
         return
-    _state_for_tenant()[module]["is_running"] = running
+    _state_for_scope()[module]["is_running"] = running
     if date_range:
-        _state_for_tenant()[module]["last_range"] = date_range
+        _state_for_scope()[module]["last_range"] = date_range
 
 
 def set_done(module: str, dt: Optional[datetime] = None):
-    if module not in _state_for_tenant():
+    if module not in _state_for_scope():
         return
-    _state_for_tenant()[module]["is_running"]    = False
-    _state_for_tenant()[module]["last_synced_at"] = dt or datetime.now()
-    _state_for_tenant()[module]["last_error"]    = None
+    _state_for_scope()[module]["is_running"]    = False
+    _state_for_scope()[module]["last_synced_at"] = dt or datetime.now()
+    _state_for_scope()[module]["last_error"]    = None
 
 
 def set_error(module: str, err: str):
-    if module not in _state_for_tenant():
+    if module not in _state_for_scope():
         return
-    _state_for_tenant()[module]["is_running"] = False
-    _state_for_tenant()[module]["last_error"] = err
+    _state_for_scope()[module]["is_running"] = False
+    _state_for_scope()[module]["last_error"] = err
 
 
 # ── 全量状态读取 ───────────────────────────────────────────
 
 def get_module_state(module: str) -> dict:
     """返回单个模块的可序列化状态快照"""
-    if module not in _state_for_tenant():
+    if module not in _state_for_scope():
         return {}
-    s = _state_for_tenant()[module]
+    s = _state_for_scope()[module]
     return {
         "is_running":    s["is_running"],
         "last_synced_at": s["last_synced_at"].isoformat() if s["last_synced_at"] else None,

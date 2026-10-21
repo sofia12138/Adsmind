@@ -133,14 +133,12 @@ def create_token(
 ) -> str:
     """签发 JWT。
 
-    `tenant_id` / `tenant_slug` 为阶段 1 新增的 claim：
-      - 旧调用方传 None → 不写入 claim，向后兼容（解 token 后由 TenantMiddleware
-        兜底为 internal tenant id=1）。
-      - 新调用方传明确 tenant → 写入 claim，后续中间件直接读取。
+    `tenant_id` / `tenant_slug` 为阶段 1 新增的 claim。旧调用方传 None 时会
+    显式签入 internal tenant；请求仍必须由 IsolationMiddleware 验签并复核成员关系。
 
     `application_id` 为阶段 4 X1 新增的 claim：
-      - None → 不写入；ApplicationMiddleware 自动落到该 tenant 的 default app。
-      - 传入 → 写入 claim，中间件直接采用该应用。
+      - None → 不写入；IsolationMiddleware 在已验证租户内选择 default app。
+      - 传入 → 写入 claim；中间件仍会复核应用归属和成员权限。
     """
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(hours=settings.jwt_expire_hours)
@@ -182,32 +180,7 @@ def get_current_user(request: Request) -> User:
     user = get_user(payload["sub"])
     if not user:
         raise HTTPException(status_code=401, detail="用户不存在")
-    # 把 JWT 里的 tenant claim 兜底注入 request.state（在 TenantMiddleware 之外提供保险）
-    _attach_tenant_from_payload(request, payload)
     return user
-
-
-def _attach_tenant_from_payload(request: Request, payload: dict) -> None:
-    """若 JWT 含 tenant_id 且 request.state 尚未挂载 tenant，则补充挂载。
-
-    这是 TenantMiddleware 的兜底路径：例如某些路由可能跳过中间件，
-    或调用链直接使用 Depends(get_current_user) 而未走中间件。
-    """
-    try:
-        existing = getattr(request.state, "tenant", None)
-        if existing is not None:
-            return
-        tid = payload.get("tenant_id")
-        if tid is None:
-            return
-        from core.tenant import get_tenant_by_id  # 延迟引入避免循环依赖
-
-        ctx = get_tenant_by_id(int(tid))
-        if ctx is not None:
-            request.state.tenant = ctx
-    except Exception:
-        # 兜底失败不影响鉴权主流程
-        pass
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:

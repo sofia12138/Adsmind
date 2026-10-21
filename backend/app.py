@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from config import get_settings
-from db import DatabaseUnavailableError, init_app_tables, init_biz_tables, migrate_json_data, validate_db_config
+from db import DatabaseUnavailableError, validate_db_config
 from tiktok_ads.api.client import TikTokApiError
 from meta_ads.api.client import MetaApiError
 
@@ -32,12 +32,7 @@ _scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 
 async def _sync_all_job():
     """Job 1：全量同步（Campaign/Adset/Ad 结构 + 所有层级日报 + 回传转化）"""
-    from services import sync_state
     from tasks.sync_campaigns import run as sync_run
-
-    if sync_state.is_any_running():
-        logger.info("定时同步(全量)：有任务正在运行，跳过本次")
-        return
 
     end   = date.today()
     start = end - timedelta(days=1)
@@ -47,8 +42,8 @@ async def _sync_all_job():
         await sync_run(start_date=str(start), end_date=str(end))
         logger.info(f"全量同步完成: {date_range}")
     except Exception as e:
-        for mod in ("structure", "reports", "returned"):
-            sync_state.set_error(mod, str(e))
+        # run() owns per-application state; a failure before scope enumeration
+        # cannot be assigned to an arbitrary tenant/application.
         logger.error(f"全量同步失败: {e}")
 
     # 全量同步完成后，附带同步优化师映射和事实表
@@ -75,12 +70,7 @@ async def _sync_all_job():
 
 async def _sync_reports_job():
     """Job 2：仅同步日报 + 回传（错开 10 分钟，弥补高频数据实时性）"""
-    from services import sync_state
     from tasks.sync_campaigns import run as sync_run
-
-    if sync_state.is_any_running():
-        logger.info("定时同步(日报)：有任务正在运行，跳过本次")
-        return
 
     end   = date.today()
     start = end  # 仅今天
@@ -92,8 +82,6 @@ async def _sync_reports_job():
         await sync_run(start_date=str(start), end_date=str(end))
         logger.info(f"日报补充同步完成: {date_range}")
     except Exception as e:
-        for mod in ("reports", "returned"):
-            sync_state.set_error(mod, str(e))
         logger.error(f"日报补充同步失败: {e}")
 
 
@@ -243,53 +231,13 @@ async def _sync_attribution_intraday_job():
         logger.error(f"CK D0 实时同步失败: {e}")
 
 
-# ── 生命周期：建表 + 数据迁移 + 启动调度器 ────────────────
+# ── 生命周期：只读校验 + 启动调度器 ──────────────────────
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     validate_db_config()
-    logger.info("正在初始化应用元数据表...")
-    init_app_tables()
-    from services.launch_draft_service import init_table as init_launch_drafts
-    init_launch_drafts()
-    from services.distribution_service import init_tables as init_distribution
-    init_distribution()
-    init_biz_tables()
-    from services.tenant_migration import run as migrate_tenant_ownership
-    migrate_tenant_ownership()
-    migrate_json_data()
-    from services.user_service import ensure_default_admin
-    ensure_default_admin()
-
-    # 阶段 1：为所有现有 app_users 行幂等回填 internal tenant 成员关系。
-    # 详见 docs/saas-transformation.md §20.4。
-    try:
-        from repositories import tenant_member_repository
-        from core.tenant import INTERNAL_TENANT_ID
-        tenant_member_repository.backfill_internal_members(INTERNAL_TENANT_ID)
-    except Exception as e:
-        logger.warning(f"internal tenant 成员回填失败（不影响启动）：{e}")
-
-    # 阶段 4 X1：为所有 active 租户幂等播种 default application。
-    # internal tenant 的 default app 已在 init_app_tables 中处理；
-    # 此处覆盖未来注册的外部租户场景（若 app_tenants 表有其它行）。
-    # 详见 docs/saas-transformation.md §22。
-    try:
-        from repositories import application_repository
-        from db import get_app_conn
-        with get_app_conn() as _conn:
-            _cur = _conn.cursor()
-            _cur.execute("SELECT id, name FROM app_tenants WHERE status = 'active'")
-            _all_tenants = _cur.fetchall() or []
-        for _t in _all_tenants:
-            application_repository.ensure_default_for_tenant(
-                int(_t["id"]),
-                name=f"{_t['name']} 默认应用",
-            )
-        if _all_tenants:
-            logger.info(f"已为 {len(_all_tenants)} 个租户确保 default application 存在")
-    except Exception as e:
-        logger.warning(f"default application 幂等播种失败（不影响启动）：{e}")
+    from migrations.schema_guard import assert_schema_ready
+    assert_schema_ready()
 
     # 阶段 2：加密链路自检
     # ────────────────────────────────────────────────────────
@@ -348,12 +296,6 @@ async def lifespan(application: FastAPI):
         raise
     except Exception as e:
         logger.warning(f"加密模块加载失败：{e}")
-
-    from services.account_service import seed_from_env
-    try:
-        seed_from_env()
-    except Exception as e:
-        logger.warning(f"从 .env 种子化默认广告账户失败（不影响启动）：{e}")
 
     # 阶段 3 批次 1：插件 jobs/hooks 注册（本批次插件暂未声明 jobs，
     # 但接入接口便于批次 2 attribution_metis / ops_panel、批次 3 returned_conversion 复用）
@@ -506,25 +448,20 @@ def _setup_middleware(application: FastAPI):
     origins = getattr(settings, "cors_origins", None) or ["*"]
     if isinstance(origins, str):
         origins = [o.strip() for o in origins.split(",")]
+    from core.isolation import IsolationMiddleware
+
+    # Only IsolationMiddleware may attach trusted tenant/application state.  The
+    # former hint middlewares decoded JWTs without verification and could silently
+    # fall back to another application, so they are intentionally not registered.
+    application.add_middleware(IsolationMiddleware)
+    # Starlette applies middleware in reverse registration order.  Keep CORS
+    # outermost so authentication failures also receive the required headers.
     application.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # 多租户上下文中间件（阶段 1）：识别 JWT/Header 中的 tenant，
-    # 注入 request.state.tenant；未识别时降级为 internal tenant (id=1)。
-    # 不阻断请求，鉴权仍由 auth.get_current_user 负责。
-    from core.tenant import TenantMiddleware
-    from core.application import ApplicationMiddleware
-    from core.isolation import IsolationMiddleware
-
-    # 注意 Starlette 中间件是 LIFO 链：后 add 的更外层。
-    # 所以先 add ApplicationMiddleware（内层）、再 add TenantMiddleware（外层），
-    # 这样请求进入时先解析 tenant、再解析 application（依赖 tenant 上下文）。
-    application.add_middleware(IsolationMiddleware)
-    application.add_middleware(ApplicationMiddleware)
-    application.add_middleware(TenantMiddleware)
 
 
 _setup_middleware(app)

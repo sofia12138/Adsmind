@@ -4,7 +4,15 @@ import unittest
 from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from core.isolation import Scope, current_scope, scoped_sql
+from core.isolation import (
+    Scope,
+    ScopeNotBoundError,
+    current_scope,
+    scoped_object_path,
+    scoped_sql,
+    scope_cache_key,
+    tenant_id,
+)
 
 
 class SQLBoundaryTests(unittest.TestCase):
@@ -29,15 +37,50 @@ class SQLBoundaryTests(unittest.TestCase):
                 scoped_sql(sql, 'app_templates')
 
 
+class ScopeContractTests(unittest.TestCase):
+    def test_missing_scope_never_defaults_to_internal_tenant(self):
+        self.assertIsNone(current_scope.get())
+        with self.assertRaises(ScopeNotBoundError):
+            tenant_id()
+
+    def test_cache_and_object_paths_include_both_ownership_levels(self):
+        token = current_scope.set(Scope(42, 73))
+        try:
+            self.assertEqual(
+                scope_cache_key('uploads', 'record-1'),
+                'uploads:tenant:42:application:73:record-1',
+            )
+            self.assertEqual(
+                scoped_object_path('materials', 'video.mp4'),
+                'materials/tenants/42/applications/73/video.mp4',
+            )
+        finally:
+            current_scope.reset(token)
+
+    def test_account_backed_business_rows_are_application_scoped(self):
+        token = current_scope.set(Scope(42, 73))
+        try:
+            sql = scoped_sql('SELECT * FROM biz_campaigns', 'biz_campaigns')
+            self.assertIn('tenant_id = 42', sql)
+            self.assertIn('application_id = 73', sql)
+        finally:
+            current_scope.reset(token)
+
+    def test_migration_plan_is_reviewable_and_has_a_reversible_scope_step(self):
+        from migrations.runner import plan
+        rows = plan()
+        self.assertEqual([row['version'] for row in rows], sorted(row['version'] for row in rows))
+        self.assertTrue(any(row['reversible'] for row in rows))
+        self.assertTrue(all(len(row['checksum']) == 64 for row in rows))
+
+
 @unittest.skipUnless(os.environ.get('ADSMIND_INTEGRATION_TESTS') == '1', 'Requires local database')
 class TenantIsolationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from services.tenant_migration import run
         from repositories import tenant_repository, application_repository, user_repository, tenant_member_repository
         from auth import create_token
         from app import app
-        run()
         cls.ids, cls.users, cls.apps, cls.headers = [], [], [], []
         cls.prefix = '_isolation_'+uuid.uuid4().hex
         for suffix in ('a', 'b'):
@@ -49,6 +92,29 @@ class TenantIsolationTests(unittest.TestCase):
             cls.users.append(row)
             tenant_member_repository.ensure_member(tenant['id'], row['id'], 'owner')
             cls.headers.append({'Authorization': 'Bearer '+create_token(row['username'], 'admin', tenant_id=tenant['id']), 'X-Application-Id': str(app_row['id'])})
+        cls.same_tenant_app = application_repository.create(
+            cls.ids[0], 'Second isolation application'
+        )['id']
+        cls.same_tenant_headers = {
+            **cls.headers[0],
+            'X-Application-Id': str(cls.same_tenant_app),
+        }
+        limited = user_repository.create(
+            username=cls.prefix+'limited',
+            password_hash='unused-test-hash',
+            role='viewer',
+            display_name='Limited application member',
+            assigned_accounts=[],
+        )
+        cls.users.append(limited)
+        tenant_member_repository.ensure_member(cls.ids[0], limited['id'], 'member')
+        application_repository.add_member(cls.apps[0], limited['id'], 'viewer')
+        cls.limited_headers = {
+            'Authorization': 'Bearer '+create_token(
+                limited['username'], 'viewer', tenant_id=cls.ids[0]
+            ),
+            'X-Application-Id': str(cls.apps[0]),
+        }
         cls.client = TestClient(app)
 
     @classmethod
@@ -58,6 +124,13 @@ class TenantIsolationTests(unittest.TestCase):
         with get_app_conn() as conn:
             cur = conn.cursor()
             for tid in cls.ids:
+                cur.execute(
+                    """DELETE FROM app_application_members
+                       WHERE application_id IN (
+                           SELECT id FROM app_applications WHERE tenant_id=%s
+                       )""",
+                    (tid,),
+                )
                 for table in sorted(OWNED_TABLES - {'biz_ad_accounts', 'tiktok_material_uploads'}):
                     cur.execute(f'DELETE FROM {table} WHERE tenant_id=%s', (tid,))
                 for table in ('app_oauth_sessions', 'app_launch_drafts', 'app_oauth_credentials', 'app_tenant_members', 'app_applications', 'app_tenants'):
@@ -124,6 +197,17 @@ class TenantIsolationTests(unittest.TestCase):
         response = self.client.get('/api/users/me', headers={**self.headers[0], 'X-Tenant-Id': str(self.ids[1])})
         self.assertEqual(response.json()['tenant']['id'], self.ids[0])
 
+    def test_ordinary_member_requires_explicit_application_membership(self):
+        self.assertEqual(
+            self.client.get('/api/users/me', headers=self.limited_headers).status_code,
+            200,
+        )
+        denied = self.client.get('/api/users/me', headers={
+            **self.limited_headers,
+            'X-Application-Id': str(self.same_tenant_app),
+        })
+        self.assertEqual(denied.status_code, 403)
+
     def test_template_and_asset_crud_are_independent(self):
         response = self.client.post('/api/templates/', headers=self.headers[0], json={'name': self.prefix, 'platform': 'tiktok'})
         self.assertEqual(response.status_code, 200, response.text)
@@ -139,6 +223,42 @@ class TenantIsolationTests(unittest.TestCase):
         self.client.put('/api/ad-assets/landing-pages/'+str(asset['id']), headers=self.headers[1], json={'name': 'hijack'})
         self.client.delete('/api/ad-assets/landing-pages/'+str(asset['id']), headers=self.headers[1])
         self.assertEqual(self.client.get('/api/ad-assets/landing-pages/'+str(asset['id']), headers=self.headers[0]).json()['data']['name'], self.prefix)
+
+    def test_same_tenant_resources_follow_tenant_or_application_contract(self):
+        # Templates are tenant-level and intentionally reusable across apps.
+        template = self.client.post(
+            '/api/templates/',
+            headers=self.headers[0],
+            json={'name': self.prefix+' shared', 'platform': 'tiktok'},
+        ).json()['data']
+        visible = self.client.get('/api/templates/', headers=self.same_tenant_headers).json()['data']
+        self.assertIn(template['id'], [row['id'] for row in visible])
+
+        # Accounts and launch drafts are application-level and must not leak to a
+        # second application owned by the same tenant.
+        account_id = self.prefix+'same-tenant-app'
+        response = self.client.post('/api/ad-accounts/', headers=self.headers[0], json={
+            'platform': 'tiktok',
+            'account_id': account_id,
+            'account_name': account_id,
+            'access_token': 'test-only',
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        other_accounts = self.client.get('/api/ad-accounts/', headers=self.same_tenant_headers).json()['data']
+        self.assertNotIn(account_id, [row['account_id'] for row in other_accounts])
+
+        payload = {
+            'request_key': str(uuid.uuid4()),
+            'payload': {
+                'template_id': template['id'],
+                'campaign_name': 'application scoped draft',
+                'budget': 50,
+            },
+        }
+        draft = self.client.post('/api/launch-drafts', headers=self.headers[0], json=payload)
+        self.assertEqual(draft.status_code, 200, draft.text)
+        other_drafts = self.client.get('/api/launch-drafts', headers=self.same_tenant_headers).json()['data']
+        self.assertEqual(other_drafts['total'], 0)
 
     def test_accounts_cannot_be_read_mutated_rebound_or_overwritten_by_other_tenant(self):
         payload = {'platform': 'tiktok', 'account_id': self.prefix+'acct', 'account_name': self.prefix, 'access_token': 'test-only-no-platform-access', 'app_secret': 'test-secret', 'currency': 'USD'}

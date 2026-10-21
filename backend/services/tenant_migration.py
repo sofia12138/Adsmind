@@ -4,10 +4,14 @@ from core.isolation import OWNED_TABLES
 
 
 def run():
+    from config import get_settings
     from services.platform_authorization import ensure_table
     ensure_table()
     for table in sorted(OWNED_TABLES):
-        factory = get_biz_conn if table in ('biz_ad_accounts', 'tiktok_material_uploads') else get_app_conn
+        is_biz = table in ('biz_ad_accounts', 'tiktok_material_uploads')
+        if is_biz and not get_settings().biz_mysql_database:
+            continue
+        factory = get_biz_conn if is_biz else get_app_conn
         with factory() as conn:
             cur = conn.cursor()
             cur.execute('SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s', (table,))

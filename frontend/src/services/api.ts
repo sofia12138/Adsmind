@@ -59,7 +59,7 @@ export class QuotaExceededError extends Error {
 /**
  * 阶段 4 X1：所有 API 请求自动带 X-Application-Id 头。
  * 当前应用 ID 从 localStorage.current_application_id 读取（由 AuthContext 维护）。
- * 后端 ApplicationMiddleware 据此把请求绑定到具体应用上下文。
+ * 后端已验证的隔离中间件据此把请求绑定到具体应用上下文。
  * 缺省时不发送该 header，后端会兜底到该租户的 default application。
  */
 function getCurrentApplicationId(): string | null {

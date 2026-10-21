@@ -173,5 +173,5 @@ def _check_account_scope(tid, platform, account_id):
         if not row:
             raise HTTPException(403, '广告账户不属于当前租户')
         scope = current_scope.get()
-        if scope and scope.application_id and row.get('application_id') not in (scope.application_id, None if tid == 1 else -1):
+        if scope and scope.application_id and row.get('application_id') != scope.application_id:
             raise HTTPException(403, '广告账户不属于当前应用')

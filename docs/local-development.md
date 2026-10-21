@@ -27,7 +27,17 @@ cd backend
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-后端运行在 `http://localhost:8000`，首次启动会自动初始化数据库表。
+后端运行在 `http://localhost:8000`。应用启动不会自动建表、加列或回填数据；首次运行或
+代码包含新迁移时，先审查并显式执行：
+
+```bash
+cd backend
+python -m migrations.cli plan
+python -m migrations.cli upgrade
+```
+
+迁移前应使用本地/测试数据库并备份。回滚最近一版使用
+`python -m migrations.cli downgrade`；不可逆的历史基线会拒绝自动回滚。
 
 ## 3. 前端启动
 
@@ -85,7 +95,7 @@ TikTok / Meta 操作台现在支持账户筛选、服务端搜索与分页。日
 
 未执行的 DRAFT 支持编辑广告系列名称、TikTok 日预算、Meta CBO 广告系列预算或 ABO 各广告组预算。修改保留素材、定向与模板快照，并更新版本号；旧版本更新、跨团队/应用/创建人修改、修改已执行草稿均被拒绝。尚不支持在编辑器中替换素材或修改定向，修改这些配置需要重新建立草稿。
 
-`app_launch_drafts` 在后端启动时幂等建表。每个创建步骤先记录待确认状态，再调用平台；成功结果立即保存。继续失败的草稿时，已经成功的相同步骤会复用平台返回结果。
+`app_launch_drafts` 由显式数据库迁移创建。每个创建步骤先记录待确认状态，再调用平台；成功结果立即保存。继续失败的草稿时，已经成功的相同步骤会复用平台返回结果。
 
 网络超时、进程中断等可能造成平台已接受写入但本地没有确认结果。此时草稿标为 UNKNOWN，或保留 RUNNING / PENDING，系统阻止重复写入，必须先核对真实平台。当前版本没有自动回查或人工补录平台编号的流程，不应直接重置这些状态后再次创建。
 
@@ -116,7 +126,7 @@ ADSMIND_INTEGRATION_TESTS=1 ../.venv/bin/python -m unittest discover -s tests -v
 
 手动添加的 Access Token 写入租户绑定的加密凭证表，App Secret 使用租户/平台/账户绑定的加密值。请求不再回退使用环境中的全局默认凭证。历史明文凭证仍保留兼容读取，正式迁移现有线上数据时应单独完成历史凭证加密与清理，不能把未知归属记录直接分配给客户。
 
-启动迁移只新增租户归属字段和索引，历史资源默认归内部租户。启动时自动补齐成员关系仅限 `admin` / `superadmin` 两个内置账号；其余没有成员关系的历史账号须显式确认归属后迁移，不会自动获得内部租户访问权。登录/退出时清理前端查询缓存，避免切换身份后残留前一团队的数据。
+显式迁移会新增租户归属字段和索引，历史资源默认归内部租户。迁移时补齐成员关系仅限 `admin` / `superadmin` 两个内置账号；其余没有成员关系的历史账号须显式确认归属后迁移，不会自动获得内部租户访问权。登录/退出时清理前端查询缓存，避免切换身份后残留前一团队的数据。完整约定见 [租户与应用隔离契约](tenant-application-contract.md)。
 
 `tests/test_tenant_isolation.py` 使用两个自动清理的临时租户验证身份伪造、跨应用访问、账户覆盖、成员管理、模板/资产读写、凭证回退、素材、日志、同步状态、报表和广告草稿隔离。平台网络调用不参与测试。
 
@@ -136,7 +146,7 @@ ADSMIND_INTEGRATION_TESTS=1 ../.venv/bin/python -m unittest discover -s tests -v
 
 「数据源配置 → 授权连接」进入集成中心。运营方在服务端配置 `TIKTOK_APP_ID`、`TIKTOK_APP_SECRET`、`OAUTH_REDIRECT_BASE_URL` 和 `PUBLIC_BASE_URL`；客户不用填写开发者密钥。TikTok 开发者后台登记的回调地址必须与 `${OAUTH_REDIRECT_BASE_URL}/api/integrations/tiktok/oauth/callback` 一致，正式域名使用 HTTPS。默认本地前端为 `http://localhost:4001`，后端回调为 `http://localhost:8000/api/integrations/tiktok/oauth/callback`；平台是否接受本地回调须在开发者后台实际确认，不能把本地测试当成正式授权联调。
 
-启动迁移创建 `app_oauth_sessions`。授权会话绑定发起管理员、租户和当前应用，10 分钟有效；回调核对签名 state 与数据库摘要、检查管理员成员关系，并通过条件更新阻止重放。兼容 TikTok 返回的 `auth_code`。换取的凭证只在服务端加密保存，回跳前端只携带随机会话 ID；账号选择接口不返回 Token。授权后用户选择一个账号，服务端检查本次授权范围及套餐配额，将账号绑定当前应用，并清除临时凭证密文。需要连接更多账号时重新发起授权。
+显式迁移创建 `app_oauth_sessions`。授权会话绑定发起管理员、租户和当前应用，10 分钟有效；回调核对签名 state 与数据库摘要、检查管理员成员关系，并通过条件更新阻止重放。兼容 TikTok 返回的 `auth_code`。换取的凭证只在服务端加密保存，回跳前端只携带随机会话 ID；账号选择接口不返回 Token。授权后用户选择一个账号，服务端检查本次授权范围及套餐配额，将账号绑定当前应用，并清除临时凭证密文。需要连接更多账号时重新发起授权。
 
 Meta 使用相同的一次性会话及账号选择流程，服务端配置 `META_APP_ID` 和 `META_APP_SECRET`，回调登记为 `${OAUTH_REDIRECT_BASE_URL}/api/integrations/meta/oauth/callback`。请求 `ads_read`、`ads_management`，并核对实际获批权限；分页读取 `/me/adaccounts`，保留平台返回的币种、时区和账号状态。Token 有效期以平台响应为准。授权会话也绑定平台，不能在 TikTok 和 Meta 之间混用。HTTP 请求及回调日志中的授权码、Token、Secret 和 state 做脱敏处理。
 

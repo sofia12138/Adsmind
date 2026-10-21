@@ -14,12 +14,19 @@ from config import get_settings
 
 DURATION_THRESHOLD_SEC = 600  # 10 分钟
 
-# record_id → {"sent": bytes_sent, "total": total_bytes, "pct": 0-100, "phase": "tiktok"}
-_tiktok_progress: dict[int, dict] = {}
+# (tenant_id, application_id, record_id) → upload progress.  A record id alone
+# must never be usable as a cross-application cache key.
+_tiktok_progress: dict[tuple[int, int, int], dict] = {}
+
+
+def _progress_key(record_id: int) -> tuple[int, int, int]:
+    from core.isolation import require_scope
+    scope = require_scope(application=True)
+    return scope.tenant_id, scope.application_id, int(record_id)
 
 
 def get_tiktok_progress(record_id: int) -> dict | None:
-    return _tiktok_progress.get(record_id)
+    return _tiktok_progress.get(_progress_key(record_id))
 
 
 def _get_token_for_advertiser(advertiser_id: str) -> str:
@@ -84,7 +91,7 @@ async def upload_video(
 
     def _on_progress(sent: int, total: int) -> None:
         pct = int(sent * 100 / total) if total else 0
-        _tiktok_progress[record_id] = {"sent": sent, "total": total, "pct": pct, "phase": "tiktok"}
+        _tiktok_progress[_progress_key(record_id)] = {"sent": sent, "total": total, "pct": pct, "phase": "tiktok"}
 
     try:
         upload_data = await svc.upload_video_by_file(
@@ -100,7 +107,7 @@ async def upload_video(
             error_code=str(e.code),
             error_message=e.message,
         )
-        _tiktok_progress.pop(record_id, None)
+        _tiktok_progress.pop(_progress_key(record_id), None)
         return _get_record_dict(record_id)
     except BaseException as e:
         logger.error(
@@ -116,7 +123,7 @@ async def upload_video(
             )
         except Exception:
             logger.error(f"[tiktok-material] 回写 failed 状态也失败: record={record_id}")
-        _tiktok_progress.pop(record_id, None)
+        _tiktok_progress.pop(_progress_key(record_id), None)
         if isinstance(e, (KeyboardInterrupt, SystemExit)):
             raise
         return _get_record_dict(record_id)
@@ -134,7 +141,7 @@ async def upload_video(
             error_code="NO_VIDEO_ID",
             error_message=f"TikTok API 未返回 video_id: {str(upload_data)[:300]}",
         )
-        _tiktok_progress.pop(record_id, None)
+        _tiktok_progress.pop(_progress_key(record_id), None)
         return _get_record_dict(record_id)
 
     update_kwargs: dict = {
@@ -181,7 +188,7 @@ async def upload_video(
             logger.warning(f"[tiktok-material] 获取视频信息失败（不阻塞）: record={record_id}, err={e}")
 
     tiktok_material_repository.update_status(record_id, "success", **update_kwargs)
-    _tiktok_progress.pop(record_id, None)
+    _tiktok_progress.pop(_progress_key(record_id), None)
     logger.info(f"[tiktok-material] 上传完成: record={record_id}, video_id={video_id}")
     return _get_record_dict(record_id)
 
@@ -229,7 +236,7 @@ def _row_to_dict(row: dict) -> dict:
     if r.get("duration_sec") is not None:
         r["duration_sec"] = float(r["duration_sec"])
     r["can_use_for_ad"] = bool(r.get("can_use_for_ad"))
-    prog = _tiktok_progress.get(r.get("id"))
+    prog = _tiktok_progress.get(_progress_key(r.get("id")))
     if prog:
         r["tiktok_progress"] = prog
     return r

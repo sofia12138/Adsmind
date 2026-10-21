@@ -1,7 +1,16 @@
-"""Verified request identity and tenant-owned CRUD boundaries."""
+"""Verified tenant/application scope and tenant-owned CRUD boundaries.
+
+The scope in this module is the only scope trusted by repositories, credentials,
+background jobs, caches and file helpers.  It is populated after JWT, tenant
+membership and application ownership have all been verified.
+"""
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 import re
+import tempfile
+from typing import Iterator
 from fastapi import HTTPException, Request
 from starlette.responses import JSONResponse
 
@@ -11,18 +20,83 @@ class Scope:
     tenant_id: int
     application_id: int | None = None
 
+    def __post_init__(self):
+        if int(self.tenant_id) <= 0:
+            raise ValueError('tenant_id 必须是正整数')
+        if self.application_id is not None and int(self.application_id) <= 0:
+            raise ValueError('application_id 必须是正整数')
+
 
 current_scope = ContextVar('verified_tenant_scope', default=None)
 
 
-def tenant_id():
+class ScopeNotBoundError(RuntimeError):
+    """Raised when tenant-owned work runs without an explicitly verified scope."""
+
+
+def require_scope(*, application: bool = False) -> Scope:
     scope = current_scope.get()
-    return scope.tenant_id if scope else 1  # maintenance / internal scheduler
+    if not isinstance(scope, Scope):
+        raise ScopeNotBoundError('缺少已验证的租户作用域')
+    if application and scope.application_id is None:
+        raise ScopeNotBoundError('缺少已验证的应用作用域')
+    return scope
+
+
+def tenant_id():
+    return require_scope().tenant_id
 
 
 def application_id():
-    scope = current_scope.get()
-    return scope.application_id if scope else None
+    return require_scope(application=True).application_id
+
+
+@contextmanager
+def bound_scope(scope: Scope) -> Iterator[Scope]:
+    """Bind an already-authorized scope for scripts and background jobs."""
+    token = current_scope.set(scope)
+    try:
+        yield scope
+    finally:
+        current_scope.reset(token)
+
+
+def scope_cache_key(namespace: str, *parts: object, level: str = 'application') -> str:
+    """Build a non-colliding key for tenant/application caches and task locks."""
+    scope = require_scope(application=level == 'application')
+    if level not in ('tenant', 'application'):
+        raise ValueError('level 必须是 tenant 或 application')
+    components = [namespace, f'tenant:{scope.tenant_id}']
+    if level == 'application':
+        components.append(f'application:{scope.application_id}')
+    components.extend(str(part) for part in parts)
+    return ':'.join(components)
+
+
+def scoped_object_path(namespace: str, *parts: str, level: str = 'application') -> str:
+    """Return a safe relative object path with mandatory ownership prefixes."""
+    scope = require_scope(application=level == 'application')
+    clean = [_safe_path_part(namespace)]
+    clean.extend(('tenants', str(scope.tenant_id)))
+    if level == 'application':
+        clean.extend(('applications', str(scope.application_id)))
+    clean.extend(_safe_path_part(part) for part in parts)
+    return '/'.join(clean)
+
+
+def scoped_temp_dir(namespace: str) -> Path:
+    """Create/return a process-local temporary directory scoped to the app."""
+    relative = scoped_object_path(namespace)
+    path = Path(tempfile.gettempdir()) / 'adsmind' / relative
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return path
+
+
+def _safe_path_part(value: object) -> str:
+    text = str(value).strip()
+    if not text or text in ('.', '..') or '/' in text or '\\' in text:
+        raise ValueError('对象路径包含非法片段')
+    return text
 
 
 def default_account_id(platform):
@@ -56,7 +130,13 @@ ACCOUNT_TABLES = {'biz_campaigns', 'biz_adgroups', 'biz_ads'}
 
 
 def account_clause():
-    return f'(platform, account_id) IN (SELECT platform, account_id FROM biz_ad_accounts WHERE tenant_id = {int(tenant_id())})'
+    scope = require_scope(application=True)
+    return (
+        '(platform, account_id) IN '
+        '(SELECT platform, account_id FROM biz_ad_accounts '
+        f'WHERE tenant_id = {int(scope.tenant_id)} '
+        f'AND application_id = {int(scope.application_id)})'
+    )
 
 
 def scoped_sql(sql, table):
@@ -171,6 +251,13 @@ class IsolationMiddleware:
                 raise HTTPException(400, '应用编号无效')
             if not app or app.tenant_id != tid or not app.is_active:
                 raise HTTPException(403, '应用不存在、已停用或不属于当前租户')
+            # Tenant owners/admins administer every application in their tenant.
+            # Ordinary tenant members must be explicitly assigned to the selected
+            # application; merely knowing an application id never grants access.
+            if member.get('role') not in ('owner', 'admin'):
+                from repositories import application_repository
+                if application_repository.get_member_role(app.id, row['id']) is None:
+                    raise HTTPException(403, '当前用户无权访问此应用')
             user = get_user(row['username'])
             if member['role'] in ('owner', 'admin'):
                 user.role = 'super_admin' if user.role == 'super_admin' and tenant.is_internal else 'admin'

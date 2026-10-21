@@ -588,7 +588,12 @@ async def upload_video(
 
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        from core.isolation import scoped_temp_dir
+        with tempfile.NamedTemporaryFile(
+            suffix=ext,
+            delete=False,
+            dir=scoped_temp_dir("meta-uploads"),
+        ) as tmp:
             tmp_path = tmp.name
             file_size = 0
             while True:

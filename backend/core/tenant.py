@@ -1,12 +1,7 @@
-"""多租户上下文与中间件（阶段 1 骨架）。
+"""Tenant models and read helpers.
 
-设计原则：
-1. 向后兼容：旧 JWT（无 tenant_id claim）默认归属 internal tenant (id=1)。
-2. 显式优先：API Key > JWT tenant_id claim > X-Tenant-Id Header > 默认值。
-3. 不强制：本阶段中间件只把 tenant 注入 request.state，业务路由可选择性使用；
-   后续阶段再逐步把 Depends(get_current_tenant) 落到每个路由上。
-
-详见 docs/saas-transformation.md §7.2、§7.3。
+Only ``core.isolation.IsolationMiddleware`` may attach a trusted TenantCtx to a
+request.  This module deliberately contains no header/JWT hint middleware.
 """
 from __future__ import annotations
 
@@ -16,7 +11,6 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 from loguru import logger
-from starlette.middleware.base import BaseHTTPMiddleware
 
 INTERNAL_TENANT_ID: int = 1
 INTERNAL_TENANT_SLUG: str = "internal"
@@ -39,25 +33,6 @@ class TenantCtx:
         if self.is_internal:
             return True
         return plugin_key in self.enabled_plugins
-
-
-_INTERNAL_FALLBACK = TenantCtx(
-    id=INTERNAL_TENANT_ID,
-    slug=INTERNAL_TENANT_SLUG,
-    name="AdsMind 内部",
-    plan_id="internal",
-    status="active",
-    is_internal=True,
-    enabled_plugins=[
-        "core_ads",
-        "drama",
-        "optimizer",
-        "attribution_metis",
-        "returned_conversion",
-        "ops_panel_polardb",
-        "ai_studio",
-    ],
-)
 
 
 # ── 仓库工具 ─────────────────────────────────────────────
@@ -111,16 +86,11 @@ def get_tenant_by_slug(slug: str) -> Optional[TenantCtx]:
 
 
 def list_tenants_for_user(user_id: int) -> list[TenantCtx]:
-    """返回某个用户可访问的全部租户列表（按 app_tenant_members）。
-
-    若 app_tenant_members 表为空（阶段 1 尚未启用），降级为：
-      - super_admin / admin → 返回 internal tenant
-      - 其它角色 → 同样返回 internal tenant（向后兼容现有单租户行为）
-    """
+    """返回成员关系明确授予的租户；查询失败或无成员关系时返回空列表。"""
     try:
         from db import get_app_conn
     except Exception:
-        return [_INTERNAL_FALLBACK]
+        return []
     try:
         with get_app_conn() as conn:
             cur = conn.cursor()
@@ -135,10 +105,10 @@ def list_tenants_for_user(user_id: int) -> list[TenantCtx]:
             rows = cur.fetchall() or []
     except Exception as e:
         logger.warning(f"list_tenants_for_user({user_id}) 查询失败：{e}")
-        return [_INTERNAL_FALLBACK]
+        return []
 
     if not rows:
-        return [_INTERNAL_FALLBACK]
+        return []
     return [_row_to_ctx(r) for r in rows]
 
 
@@ -164,88 +134,16 @@ def _row_to_ctx(row: dict) -> TenantCtx:
     )
 
 
-# ── 中间件 ────────────────────────────────────────────────
-
-class TenantMiddleware(BaseHTTPMiddleware):
-    """从请求中识别租户并注入 request.state.tenant。
-
-    识别优先级（阶段 1 仅 JWT + Header；API Key 在阶段 6 引入）：
-      1. JWT.tenant_id claim
-      2. X-Tenant-Id header
-      3. 默认 internal tenant (id=1)
-
-    本中间件只填充上下文，不阻断请求。鉴权仍由 auth.get_current_user 负责。
-    """
-
-    async def dispatch(self, request: Request, call_next):
-        tenant_id = _resolve_tenant_id_from_request(request)
-        ctx = None
-        if tenant_id:
-            ctx = get_tenant_by_id(tenant_id)
-        if ctx is None:
-            ctx = _INTERNAL_FALLBACK
-        request.state.tenant = ctx
-        return await call_next(request)
-
-
-def _resolve_tenant_id_from_request(request: Request) -> Optional[int]:
-    # 1. JWT
-    jwt_tid: Optional[int] = None
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-        jwt_tid = _peek_tenant_from_jwt(token)
-
-    # 2. 显式 Header
-    header_tid_raw = request.headers.get("X-Tenant-Id")
-    header_tid: Optional[int] = None
-    if header_tid_raw:
-        try:
-            header_tid = int(header_tid_raw)
-        except ValueError:
-            header_tid = None
-
-    # P0 加固：
-    #   - JWT 带了 tenant_id：以 JWT 为准；若 header 不一致记 warning 后丢弃
-    #   - JWT 没带：允许 header 兜底（兼容旧 token / 后台脚本调用）
-    if jwt_tid:
-        if header_tid and header_tid != jwt_tid:
-            try:
-                from loguru import logger as _logger
-                _logger.warning(
-                    "[security] X-Tenant-Id header={hdr} ≠ JWT tenant_id={jwt}，"
-                    "已忽略 header（防越权）",
-                    hdr=header_tid, jwt=jwt_tid,
-                )
-            except Exception:
-                pass
-        return jwt_tid
-    return header_tid
-
-
-def _peek_tenant_from_jwt(token: str) -> Optional[int]:
-    """从 JWT 中无验签地解出 tenant_id（仅用于中间件 hint，鉴权另行处理）。"""
-    try:
-        from jose import jwt as _jwt
-        payload = _jwt.get_unverified_claims(token)
-        tid = payload.get("tenant_id")
-        if tid is None:
-            return None
-        return int(tid)
-    except Exception:
-        return None
-
-
 # ── FastAPI 依赖 ──────────────────────────────────────────
 
 def get_current_tenant(request: Request) -> TenantCtx:
     """FastAPI Depends：从 request.state 取出已注入的租户。
 
-    若中间件未运行（如脚本调用），降级为 internal tenant。
+    仅接受服务端鉴权链写入的上下文；缺失时拒绝，禁止静默降级到内部租户。
     """
     tenant = getattr(request.state, "tenant", None)
     if not isinstance(tenant, TenantCtx):
-        return _INTERNAL_FALLBACK
+        raise HTTPException(status_code=401, detail="缺少已验证的租户上下文")
     if tenant.status != "active":
         raise HTTPException(status_code=403, detail=f"租户已被{tenant.status}")
     return tenant

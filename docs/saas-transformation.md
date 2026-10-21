@@ -5,6 +5,10 @@
 > 日期：2026-05-13
 > 关联：`README.md` · `docs/project-structure.md` · `docs/deployment.md`
 
+> 注意：本文保留早期方案和阶段记录。租户/应用鉴权、数据作用域、后台任务、缓存、文件与
+> 显式迁移的当前强制约定以 [租户与应用隔离契约](tenant-application-contract.md) 为准；
+> 本文中未验签 Header、中间件默认 internal tenant、启动时自动 DDL/回填等旧方案均已废止。
+
 ---
 
 ## 0. 文档目的

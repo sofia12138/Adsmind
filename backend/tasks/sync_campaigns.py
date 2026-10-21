@@ -1023,10 +1023,16 @@ async def run(platform=None, start_date=None, end_date=None):
     from db import get_app_conn
     with get_app_conn() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM app_tenants WHERE status='active' ORDER BY id")
-        tenants = cur.fetchall()
-    for row in tenants:
-        token = current_scope.set(Scope(int(row['id'])))
+        cur.execute(
+            """SELECT t.id AS tenant_id, a.id AS application_id
+               FROM app_tenants t
+               INNER JOIN app_applications a ON a.tenant_id=t.id
+               WHERE t.status='active' AND a.status='active'
+               ORDER BY t.id, a.id"""
+        )
+        scopes = cur.fetchall()
+    for row in scopes:
+        token = current_scope.set(Scope(int(row['tenant_id']), int(row['application_id'])))
         try:
             if sync_state.is_any_running():
                 continue
