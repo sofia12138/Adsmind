@@ -5,6 +5,8 @@ export interface MenuItem {
   label: string
   icon?: LucideIcon
   path?: string
+  /** Detail routes below this path should keep this navigation leaf selected. */
+  matchSubpaths?: boolean
   /** 独立工具入口，在新标签页打开。 */
   externalUrl?: string
   children?: MenuItem[]

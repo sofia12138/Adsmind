@@ -1,64 +1,46 @@
-import { useState } from 'react'
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ChevronRight, ExternalLink, LogOut } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { menuConfig } from '@/app/menu-config'
 import type { MenuItem } from '@/types/menu'
 import { useAuth } from '@/contexts/AuthContext'
 import { ApplicationSelector } from './ApplicationSelector'
-
-function filterMenu(
-  items: MenuItem[],
-  hasPanel: (key: string) => boolean,
-  hasPlugin: (key: string) => boolean,
-  isInternal: boolean,
-): MenuItem[] {
-  return items.reduce<MenuItem[]>((acc, item) => {
-    if (item.internalOnly && !isInternal) return acc
-    if (item.children) {
-      const filtered = filterMenu(item.children, hasPanel, hasPlugin, isInternal)
-      if (filtered.length > 0) {
-        acc.push({ ...item, children: filtered })
-      }
-      return acc
-    }
-    // 阶段 3：菜单同时受 panelKey（角色权限）与 pluginKey（租户插件开关）控制。
-    // 两者都通过才显示；未设置的字段视为通过。
-    if (item.pluginKey && !hasPlugin(item.pluginKey)) return acc
-    if (item.panelKey) {
-      if (hasPanel(item.panelKey)) acc.push(item)
-    } else {
-      acc.push(item)
-    }
-    return acc
-  }, [])
-}
+import { filterMenu, isMenuBranchSelected, isMenuItemSelected } from './sidebar-menu'
 
 function SidebarItem({ item, depth = 0 }: { item: MenuItem; depth?: number }) {
   const location = useLocation()
   const hasChildren = item.children && item.children.length > 0
-  const isChildActive = hasChildren
-    ? item.children!.some(c => c.path && location.pathname.startsWith(c.path))
-    : false
+  const isChildActive = hasChildren ? isMenuBranchSelected(item, location.pathname) : false
+  const isSelected = isMenuItemSelected(item, location.pathname)
   const [open, setOpen] = useState(isChildActive)
+  const submenuId = useId()
+  const linkRef = useRef<HTMLAnchorElement>(null)
+
+  useEffect(() => {
+    if (isSelected) linkRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [isSelected])
 
   if (hasChildren) {
     return (
       <div>
         <button
+          type="button"
           onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          aria-controls={submenuId}
           className={cn(
-            'w-full flex items-center gap-2.5 px-5 py-2 text-[13px] text-sidebar-foreground',
+            'w-[calc(100%-1rem)] min-w-0 flex items-center gap-2.5 px-5 py-2 text-[13px] text-sidebar-foreground',
             'hover:bg-sidebar-hover hover:text-white transition-colors rounded-md mx-2',
             isChildActive && 'text-white',
           )}
         >
           {item.icon && <item.icon className="w-4 h-4 shrink-0 opacity-70" />}
-          <span className="flex-1 text-left">{item.label}</span>
+          <span className="flex-1 min-w-0 truncate text-left">{item.label}</span>
           <ChevronRight className={cn('w-3.5 h-3.5 transition-transform opacity-50', open && 'rotate-90')} />
         </button>
         {open && (
-          <div className="mt-0.5 space-y-0.5">
+          <div id={submenuId} className="mt-0.5 space-y-0.5">
             {item.children!.map(child => (
               <SidebarItem key={child.id} item={child} depth={depth + 1} />
             ))}
@@ -71,35 +53,36 @@ function SidebarItem({ item, depth = 0 }: { item: MenuItem; depth?: number }) {
   if (item.externalUrl) {
     return <a href={item.externalUrl} target="_blank" rel="noopener noreferrer"
       title={`${item.label}（新标签页打开）`}
-      className={cn('flex items-center gap-2.5 py-2 text-[13px] transition-colors rounded-md mx-2 text-sidebar-foreground hover:bg-sidebar-hover hover:text-white', depth > 0 ? 'pl-11 pr-4' : 'px-5')}>
+      className={cn('flex min-w-0 max-w-[calc(100%-1rem)] items-center gap-2.5 py-2 text-[13px] transition-colors rounded-md mx-2 text-sidebar-foreground hover:bg-sidebar-hover hover:text-white', depth > 0 ? 'pl-11 pr-4' : 'px-5')}>
       {item.icon && depth === 0 && <item.icon className="w-4 h-4 shrink-0 opacity-70" />}
-      <span>{item.label}</span><ExternalLink className="w-3 h-3 opacity-60" />
+      <span className="min-w-0 truncate">{item.label}</span><ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
     </a>
   }
 
   if (!item.path) return null
 
   return (
-    <NavLink
+    <Link
+      ref={linkRef}
       to={item.path}
-      className={({ isActive }) =>
-        cn(
-          'flex items-center gap-2.5 py-2 text-[13px] transition-colors rounded-md mx-2',
-          depth > 0 ? 'pl-11 pr-4' : 'px-5',
-          isActive
-            ? 'bg-primary/15 text-blue-400 font-medium'
-            : 'text-sidebar-foreground hover:bg-sidebar-hover hover:text-white',
-        )
-      }
+      aria-current={isSelected ? 'page' : undefined}
+      className={cn(
+        'flex min-w-0 max-w-[calc(100%-1rem)] items-center gap-2.5 py-2 text-[13px] transition-colors rounded-md mx-2',
+        depth > 0 ? 'pl-11 pr-4' : 'px-5',
+        isSelected
+          ? 'bg-primary/15 text-blue-400 font-medium'
+          : 'text-sidebar-foreground hover:bg-sidebar-hover hover:text-white',
+      )}
     >
       {item.icon && depth === 0 && <item.icon className="w-4 h-4 shrink-0 opacity-70" />}
-      <span>{item.label}</span>
-    </NavLink>
+      <span className="min-w-0 truncate">{item.label}</span>
+    </Link>
   )
 }
 
 export function Sidebar() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { hasPanel, hasPlugin, logout, username, tenant } = useAuth()
 
   const visibleMenu = filterMenu(menuConfig, hasPanel, hasPlugin, tenant.isInternal)
@@ -112,7 +95,7 @@ export function Sidebar() {
   const displayUser = username || localStorage.getItem('auth_user') || '用户'
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-[220px] bg-sidebar flex flex-col z-40">
+    <aside className="fixed left-0 top-0 bottom-0 w-[220px] overflow-hidden bg-sidebar flex flex-col z-40">
       <div className="flex items-center gap-3 px-5 py-5">
         <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-lg shadow-blue-500/20">
           A
@@ -123,9 +106,12 @@ export function Sidebar() {
       {/* 阶段 4 X1：当前应用切换器 */}
       <ApplicationSelector />
 
-      <nav className="flex-1 overflow-y-auto py-2 mt-2 space-y-0.5">
+      <nav aria-label="主导航" className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto py-2 mt-2 space-y-0.5">
         {visibleMenu.map(item => (
-          <SidebarItem key={item.id} item={item} />
+          <SidebarItem
+            key={`${item.id}:${isMenuBranchSelected(item, location.pathname)}`}
+            item={item}
+          />
         ))}
       </nav>
 

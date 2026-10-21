@@ -56,6 +56,11 @@ import PlatformPreflightPage from '@/pages/PlatformPreflightPage'
 import AutomationRulesPage from '@/pages/AutomationRulesPage'
 import ReadinessAnalyticsPage from '@/pages/ReadinessAnalyticsPage'
 import AssetAnalysisPage from '@/pages/AssetAnalysisPage'
+import {
+  preservedDirectRoutes,
+  redirectWithSearch,
+  type PreservedDirectRoutePath,
+} from './navigation-contract'
 
 function G({ panelKey, children }: { panelKey: string; children: React.ReactNode }) {
   return <AuthGuard panelKey={panelKey}>{children}</AuthGuard>
@@ -64,7 +69,15 @@ function G({ panelKey, children }: { panelKey: string; children: React.ReactNode
 /** 保留 query string 的 redirect，用于旧链接兼容 */
 function RedirectKeepQuery({ to }: { to: string }) {
   const loc = useLocation()
-  return <Navigate to={`${to}${loc.search}`} replace />
+  return <Navigate to={redirectWithSearch(to, loc.search)} replace />
+}
+
+const preservedDirectRouteElements: Record<PreservedDirectRoutePath, React.ReactNode> = {
+  'ads/drafts': <LaunchDraftsPage />,
+  'ads/platform-preflight': <PlatformPreflightPage />,
+  templates: <TemplatesPage />,
+  'tiktok-materials': <TikTokMaterialsPage />,
+  'asset-analysis': <AssetAnalysisPage />,
 }
 
 export const router = createBrowserRouter([
@@ -84,18 +97,18 @@ export const router = createBrowserRouter([
       { path: 'ads',                element: <G panelKey="ads_data"><AdsPage /></G> },
       { path: 'console/tiktok',     element: <G panelKey="tiktok_console"><TikTokConsolePage /></G> },
       { path: 'console/meta',       element: <G panelKey="meta_console"><MetaConsolePage /></G> },
-      { path: 'ads/drafts', element: <G panelKey="ad_create"><LaunchDraftsPage /></G> },
       { path: 'ads/app-drafts', element: <G panelKey="ad_creation_drafts"><AdCreationDraftsPage /></G> },
       { path: 'ads/app-drafts/new', element: <G panelKey="ad_creation_drafts"><AdCreationDraftNewPage /></G> },
       { path: 'ads/app-drafts/:id', element: <G panelKey="ad_creation_drafts"><AdCreationDraftDetailPage /></G> },
-      { path: 'ads/platform-preflight', element: <G panelKey="platform_preflight"><PlatformPreflightPage /></G> },
       { path: 'ads/automation-rules', element: <G panelKey="automation_rules"><AutomationRulesPage /></G> },
       { path: 'ads/readiness', element: <G panelKey="platform_preflight"><ReadinessAnalyticsPage /></G> },
-      { path: 'asset-analysis', element: <G panelKey="creatives"><AssetAnalysisPage /></G> },
       { path: 'ads/create',         element: <G panelKey="ad_create"><AdsCreatePage /></G> },
       // 旧链接兼容：保留 ?template_id= 透传，重定向到统一新建广告页
       { path: 'ads/create-tiktok-minis', element: <RedirectKeepQuery to="/ads/create" /> },
-      { path: 'templates',          element: <G panelKey="template_mgmt"><TemplatesPage /></G> },
+      ...preservedDirectRoutes.map(route => ({
+        path: route.path,
+        element: <G panelKey={route.panelKey}>{preservedDirectRouteElements[route.path]}</G>,
+      })),
       { path: 'drama-catalog',      element: <G panelKey="creatives"><DramaCatalogPage /></G> },
       { path: 'creatives',          element: <G panelKey="creatives"><MaterialCatalogPage /></G> },
       { path: 'materials/upload',    element: <G panelKey="creatives"><MaterialCatalogPage openUpload /></G> },
@@ -122,7 +135,6 @@ export const router = createBrowserRouter([
       { path: 'assets/landing-pages', element: <G panelKey="asset_landing_pages"><AssetLandingPagesPage /></G> },
       { path: 'assets/copy-packs',    element: <G panelKey="asset_copy_packs"><AssetCopyPacksPage /></G> },
       { path: 'assets/region-groups', element: <G panelKey="asset_region_groups"><AssetRegionGroupsPage /></G> },
-      { path: 'tiktok-materials',     element: <G panelKey="tiktok_materials"><TikTokMaterialsPage /></G> },
       { path: 'applications',           element: <G panelKey="applications"><ApplicationsListPage /></G> },
       { path: 'applications/:id',       element: <G panelKey="applications"><ApplicationDetailPage /></G> },
       { path: 'settings/integrations',  element: <G panelKey="applications"><IntegrationsPage /></G> },

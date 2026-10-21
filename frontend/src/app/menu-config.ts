@@ -34,7 +34,6 @@ import {
   Library,
   FolderCog,
   Braces,
-  FileSearch,
   Workflow,
 } from 'lucide-react'
 import type { MenuItem } from '@/types/menu'
@@ -50,15 +49,12 @@ export const menuConfig: MenuItem[] = [
     icon: Megaphone,
     children: [
       { id: 'ads', label: '广告数据', icon: BarChart3, path: '/ads', panelKey: 'ads_data' },
-      { id: 'tiktok-console', label: 'TikTok操作台', icon: Monitor, path: '/console/tiktok', panelKey: 'tiktok_console' },
-      { id: 'meta-console', label: 'Meta操作台', icon: Monitor, path: '/console/meta', panelKey: 'meta_console' },
-      { id: 'ads-drafts', label: '广告草稿', icon: PlusCircle, path: '/ads/drafts', panelKey: 'ad_create' },
-      { id: 'app-ad-drafts', label: '应用广告草稿', icon: FileText, path: '/ads/app-drafts', panelKey: 'ad_creation_drafts' },
-      { id: 'platform-preflight', label: '平台执行预检', icon: FileSearch, path: '/ads/platform-preflight', panelKey: 'platform_preflight' },
+      { id: 'tiktok-console', label: 'TikTok 操作台', icon: Monitor, path: '/console/tiktok', panelKey: 'tiktok_console' },
+      { id: 'meta-console', label: 'Meta 操作台', icon: Monitor, path: '/console/meta', panelKey: 'meta_console' },
+      { id: 'app-ad-drafts', label: '应用广告草稿', icon: FileText, path: '/ads/app-drafts', panelKey: 'ad_creation_drafts', matchSubpaths: true },
       { id: 'automation-rules', label: '自动化规则', icon: Workflow, path: '/ads/automation-rules', panelKey: 'automation_rules' },
       { id: 'readiness-analytics', label: '准备就绪度', icon: Shield, path: '/ads/readiness', panelKey: 'platform_preflight' },
       { id: 'ads-create', label: '新建广告', icon: PlusCircle, path: '/ads/create', panelKey: 'ad_create' },
-      { id: 'templates', label: '模板管理', icon: FileText, path: '/templates', panelKey: 'template_mgmt' },
     ],
   },
   {
@@ -80,7 +76,6 @@ export const menuConfig: MenuItem[] = [
       { id: 'auto-edit', label: '自动剪辑', icon: Film, path: '/auto-edit', externalUrl: cutflowUrl, panelKey: 'creatives' },
       { id: 'creative-analysis', label: '素材分析', icon: LineChart, path: '/creative-analysis', panelKey: 'creative_analysis' },
       { id: 'designer-performance', label: '设计师人效', icon: UserCheck, path: '/designer-performance', panelKey: 'designer_performance', pluginKey: 'designer_performance' },
-      { id: 'tiktok-materials', label: 'TikTok素材上传', icon: Upload, path: '/tiktok-materials', panelKey: 'tiktok_materials' },
     ],
   },
   {
@@ -101,7 +96,6 @@ export const menuConfig: MenuItem[] = [
       { id: 'overview', label: '数据总览', icon: Eye, path: '/overview', panelKey: 'overview' },
       { id: 'channel-analysis', label: '渠道分析', icon: GitCompare, path: '/channel-analysis', panelKey: 'channel_analysis' },
       { id: 'biz-analysis', label: '业务分析', icon: TrendingUp, path: '/biz-analysis', panelKey: 'biz_analysis' },
-      { id: 'asset-analysis', label: '素材与剧目分析', icon: BarChart3, path: '/asset-analysis', panelKey: 'creatives' },
       { id: 'returned-conversion', label: '广告回传分析', icon: Redo2, path: '/returned-conversion', panelKey: 'returned_conversion' },
       { id: 'drama-analysis', label: '剧级分析', icon: Film, path: '/drama-analysis', panelKey: 'drama_analysis', pluginKey: 'drama' },
       { id: 'optimizer-performance', label: '优化师人效', icon: UserCheck, path: '/optimizer-performance', panelKey: 'optimizer_performance', pluginKey: 'optimizer' },
@@ -123,6 +117,8 @@ export const menuConfig: MenuItem[] = [
       { id: 'asset-landing-pages', label: '落地页库', icon: Link2, path: '/assets/landing-pages', panelKey: 'asset_landing_pages' },
       { id: 'asset-copy-packs', label: '文案库', icon: FileText, path: '/assets/copy-packs', panelKey: 'asset_copy_packs' },
       { id: 'asset-region-groups', label: '地区组库', icon: Globe, path: '/assets/region-groups', panelKey: 'asset_region_groups' },
+      { id: 'account-groups', label: '账户组', icon: FolderCog, path: '/settings/account-groups', panelKey: 'account_groups' },
+      { id: 'naming-rules', label: '命名规则', icon: Braces, path: '/settings/naming-rules', panelKey: 'naming_rules' },
     ],
   },
   {
@@ -130,10 +126,8 @@ export const menuConfig: MenuItem[] = [
     label: '系统管理',
     icon: Settings,
     children: [
-      { id: 'applications', label: '应用管理', icon: Layers, path: '/applications', panelKey: 'applications' },
+      { id: 'applications', label: '应用管理', icon: Layers, path: '/applications', panelKey: 'applications', matchSubpaths: true },
       { id: 'integrations', label: '集成中心', icon: Link2, path: '/settings/integrations', panelKey: 'applications' },
-      { id: 'account-groups', label: '账户组', icon: FolderCog, path: '/settings/account-groups', panelKey: 'account_groups' },
-      { id: 'naming-rules', label: '命名规则', icon: Braces, path: '/settings/naming-rules', panelKey: 'naming_rules' },
       { id: 'team', label: '团队成员', icon: Users, path: '/team', panelKey: 'team' },
       { id: 'data-source', label: '数据源配置', icon: Database, path: '/data-source', panelKey: 'data_source' },
       { id: 'user-mgmt', label: '用户权限', icon: Users, path: '/user-mgmt', panelKey: 'user_mgmt' },
