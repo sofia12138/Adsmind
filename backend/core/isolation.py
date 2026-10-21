@@ -141,6 +141,11 @@ APPLICATION_OWNED_TABLES = {
     'app_platform_material_mappings',
     'app_platform_preflight_runs',
     'app_platform_preflight_audit',
+    'app_automation_rules',
+    'app_automation_rule_versions',
+    'app_automation_rule_evaluations',
+    'app_automation_rule_recommendations',
+    'app_automation_rule_audit',
     'app_distribution_channels',
     'app_distribution_drafts',
 }
