@@ -52,6 +52,8 @@ ROI 仅在对象为 `complete`、有事实行、结束日期已覆盖且消耗�
 ```bash
 cd backend
 ../.venv/bin/python -m unittest tests.test_asset_analysis -v
+ADSMIND_HTTP_BASE_URL=http://127.0.0.1:8011 \
+  ../.venv/bin/python -m unittest tests.test_asset_analysis_http -v
 ../.venv/bin/python -m unittest discover -s tests -v
 
 cd ../frontend
@@ -62,4 +64,5 @@ npx eslint src/pages/AssetAnalysisPage.tsx src/services/asset-analysis.ts \
 ```
 
 真实 HTTP 与浏览器验收必须使用独立测试数据库。不得为通过验收而连接生产数据库或借用不明确归属的
-本地开发库。
+本地开发库。隔离前端可通过 `VITE_API_PROXY_TARGET=http://127.0.0.1:8011` 指向独立后端；未设置时
+仍使用默认的 `http://127.0.0.1:8000`。
