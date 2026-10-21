@@ -1,0 +1,1 @@
+"""Application-scoped creative groups."""

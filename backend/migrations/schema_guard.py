@@ -20,6 +20,7 @@ APP_BASE_REQUIREMENTS = {
 APP_RESOURCE_REQUIREMENTS = {
     "app_account_groups": {"tenant_id", "application_id", "account_refs"},
     "app_creative_groups": {"tenant_id", "application_id", "asset_refs"},
+    "app_creative_group_materials": {"tenant_id", "application_id", "creative_group_id", "material_id", "selection_mode", "selected_version_id"},
     "app_naming_rules": {"tenant_id", "application_id", "rule"},
     "app_execution_records": {"tenant_id", "application_id", "status"},
     "drama_masters": {"tenant_id", "normalized_title", "content_fingerprint", "revision"},

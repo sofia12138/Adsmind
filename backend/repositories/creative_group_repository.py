@@ -1,56 +1,57 @@
-"""Application-scoped creative groups."""
-from repositories import application_resource_repository as _resources
+"""Compatibility facade for the 0007 material-backed creative-group domain.
+
+New code should import :mod:`creative_groups.service` directly. Keeping this
+module prevents older internal imports from bypassing the material contract.
+"""
+from __future__ import annotations
+
+from fastapi import HTTPException
+from pydantic import ValidationError
+
+from creative_groups import service
+
+
+def _input(name: str, asset_refs: list[dict]) -> service.CreativeGroupInput:
+    try:
+        return service.CreativeGroupInput(name=name, materials=asset_refs)
+    except ValidationError as exc:
+        raise ValueError(
+            "素材引用必须使用 material_id、selection_mode 和 selected_version_id 契约"
+        ) from exc
 
 
 def _validate_refs(asset_refs: list[dict]) -> None:
-    if not isinstance(asset_refs, list) or any(not isinstance(ref, dict) for ref in asset_refs):
-        raise ValueError("asset_refs 必须是素材引用列表")
-    if not asset_refs:
-        return
-    from repositories import (
-        asset_copy_pack_repository,
-        asset_landing_page_repository,
-        asset_region_group_repository,
-        tiktok_material_repository,
-    )
-    getters = {
-        "copy_pack": asset_copy_pack_repository.get_by_id,
-        "landing_page": asset_landing_page_repository.get_by_id,
-        "region_group": asset_region_group_repository.get_by_id,
-        "tiktok_material": tiktok_material_repository.get_by_id,
-    }
-    for ref in asset_refs:
-        kind = str(ref.get("kind") or "")
-        getter = getters.get(kind)
-        try:
-            asset_id = int(ref.get("id"))
-        except (TypeError, ValueError):
-            asset_id = 0
-        if not getter or asset_id <= 0:
-            raise ValueError("素材引用必须包含受支持的 kind 和正整数 id")
-        if getter(asset_id) is None:
-            raise ValueError("素材不存在或不属于当前租户")
+    service.validate_materials(_input("兼容校验", asset_refs))
 
 
 def create(*, name: str, asset_refs: list[dict], created_by: str = "") -> dict:
-    _validate_refs(asset_refs)
-    return _resources.create("creative_group", name=name, payload=asset_refs, created_by=created_by)
+    return service.create_group(_input(name, asset_refs), created_by)
 
 
 def get(group_id: int):
-    return _resources.get("creative_group", group_id)
+    try:
+        return service.get_group(group_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return None
+        raise
 
 
 def list_all():
-    return _resources.list_all("creative_group")
+    return service.list_groups()
 
 
 def update(group_id: int, *, name: str, asset_refs: list[dict]):
-    if get(group_id) is None:
-        return None
-    _validate_refs(asset_refs)
-    return _resources.update("creative_group", group_id, name=name, payload=asset_refs)
+    try:
+        return service.update_group(group_id, _input(name, asset_refs))
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return None
+        raise
 
 
 def delete(group_id: int) -> bool:
-    return _resources.delete("creative_group", group_id)
+    if get(group_id) is None:
+        return False
+    service.delete_group(group_id)
+    return True

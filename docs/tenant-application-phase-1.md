@@ -19,11 +19,12 @@
   每个 `platform + account_id` 均属于当前应用；
 - 广告草稿、发行频道和发行草稿的读取与更新显式包含两个作用域字段；广告草稿执行状态、
   checkpoint 和最终结果不能只按主键更新；
-- 新增账户组、创意组、命名规则、平台执行记录 repository。账户组和命名规则已补齐服务、
-  应用级权限、API 与管理页面；创意组和平台执行记录仍仅是数据层契约。
-- 账户组写入时逐项验证 `platform + account_id` 属于当前应用；素材组引用使用
-  `{"kind": "landing_page|copy_pack|region_group|tiktok_material", "id": 123}` 格式，
-  写入时验证对应租户级主档可见，执行层不得盲信 JSON 中的引用。
+- 新增账户组、创意组、命名规则、平台执行记录 repository。账户组、命名规则和创意组已补齐
+  服务、应用级权限、API 与管理页面；平台执行记录仍仅是数据层契约。
+- 账户组写入时逐项验证 `platform + account_id` 属于当前应用；创意组自 0007 起只接受
+  `material_id + selection_mode + selected_version_id`，并验证素材已由当前应用选择。旧的
+  `kind + id` 通用资产引用不再是创意组写入契约，详见
+  [应用级创意组接口契约](creative-groups-contract.md)。
 
 ### 不在本阶段改造的范围
 

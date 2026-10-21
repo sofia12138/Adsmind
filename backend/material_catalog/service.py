@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pymysql.err import IntegrityError
 
 from . import repository
 from .storage import get_storage
@@ -167,5 +168,11 @@ def update_reference(material_id: int, data: ReferenceUpdate) -> dict:
 
 
 def detach(material_id: int) -> None:
-    if not repository.detach(material_id):
+    try:
+        removed = repository.detach(material_id)
+    except IntegrityError as exc:
+        if exc.args and exc.args[0] == 1451:
+            raise HTTPException(409, "素材仍被创意组引用，请先从创意组移除") from exc
+        raise
+    if not removed:
         raise HTTPException(404, "应用素材引用不存在")

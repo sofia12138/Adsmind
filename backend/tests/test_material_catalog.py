@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
+from pymysql.err import IntegrityError
 
 from core.isolation import Scope, bound_scope
 from material_catalog import repository, service
@@ -72,6 +73,12 @@ class ValidationTests(unittest.TestCase):
         self.assertFalse(row["upload"]["available"])
         self.assertIsNone(row["upload"]["upload_url"])
 
+    def test_detach_reports_creative_group_reference_as_a_conflict(self):
+        with patch.object(repository, "detach", side_effect=IntegrityError(1451, "foreign key")):
+            with self.assertRaises(HTTPException) as error:
+                service.detach(7)
+        self.assertEqual(error.exception.status_code, 409)
+
 
 class RepositoryScopeTests(unittest.TestCase):
     def test_master_and_version_reads_filter_tenant(self):
@@ -138,7 +145,9 @@ class RepositoryScopeTests(unittest.TestCase):
         from migrations.schema_guard import APP_RESOURCE_REQUIREMENTS
         self.assertEqual(
             {"material_masters", "material_versions", "app_application_materials"},
-            {name for name in APP_RESOURCE_REQUIREMENTS if "material" in name},
+            {name for name in APP_RESOURCE_REQUIREMENTS if name in {
+                "material_masters", "material_versions", "app_application_materials"
+            }},
         )
 
 

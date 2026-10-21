@@ -18,6 +18,7 @@ MODULES = (
     "migrations.versions.v0004_drama_catalog",
     "migrations.versions.v0005_application_settings_panels",
     "migrations.versions.v0006_material_catalog",
+    "migrations.versions.v0007_creative_groups",
 )
 
 

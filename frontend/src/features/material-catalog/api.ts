@@ -44,6 +44,7 @@ export interface ApplicationMaterial {
   notes: string
   name: string
   material_type: MaterialType
+  material_status: 'active' | 'archived'
   latest_version_number: number
   selected_version_number?: number | null
   selected_version_upload_status?: string | null

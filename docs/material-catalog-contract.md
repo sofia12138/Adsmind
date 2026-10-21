@@ -39,3 +39,6 @@
 未来平台映射应新增独立应用级表，至少以
 `(tenant_id, application_id, material_id, version_id, platform, account_id)` 定位，并在执行前再次确认
 版本确实已上传；不得向当前三张核心表回填平台执行状态。
+
+应用级创意组对上述字段的具体消费与阻断规则见
+[应用级创意组接口契约](creative-groups-contract.md)。

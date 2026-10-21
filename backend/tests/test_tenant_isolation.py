@@ -172,13 +172,15 @@ class ScopeContractTests(unittest.TestCase):
 
     def test_creative_group_rejects_an_unowned_asset_reference(self):
         from core.isolation import bound_scope
-        from repositories import asset_landing_page_repository, creative_group_repository
-        with patch.object(asset_landing_page_repository, 'get_by_id', return_value=None):
+        from creative_groups import repository as material_group_repository
+        from repositories import creative_group_repository
+        with patch.object(material_group_repository, 'get_selectable_material', return_value=None):
             with bound_scope(Scope(42, 73)):
-                with self.assertRaisesRegex(ValueError, '不属于当前租户'):
+                with self.assertRaises(HTTPException) as caught:
                     creative_group_repository._validate_refs([
-                        {'kind': 'landing_page', 'id': 9001},
+                        {'material_id': 9001, 'selection_mode': 'latest'},
                     ])
+        self.assertEqual(caught.exception.status_code, 404)
 
     def test_account_transfer_is_tenant_scoped_and_target_app_verified(self):
         from core.isolation import bound_scope
@@ -438,29 +440,20 @@ class TenantIsolationTests(unittest.TestCase):
         from core.isolation import bound_scope
         from repositories import (
             account_group_repository,
-            creative_group_repository,
             execution_record_repository,
             naming_rule_repository,
         )
 
         from repositories import (
-            asset_landing_page_repository,
             biz_account_repository,
         )
 
         with bound_scope(Scope(self.ids[0], self.apps[0])):
             account_id = self.prefix+'group-account'
             biz_account_repository.upsert(platform='tiktok', account_id=account_id)
-            asset = asset_landing_page_repository.create(
-                name=self.prefix+'group-asset',
-                landing_page_url='https://example.test/group-asset',
-            )
             cases = (
                 (account_group_repository, {'account_refs': [{
                     'platform': 'tiktok', 'account_id': account_id,
-                }]}),
-                (creative_group_repository, {'asset_refs': [{
-                    'kind': 'landing_page', 'id': asset['id'],
                 }]}),
                 (naming_rule_repository, {'rule': {'pattern': '{drama}-{language}'}}),
             )
@@ -478,13 +471,6 @@ class TenantIsolationTests(unittest.TestCase):
                 account_group_repository.create(
                     name=self.prefix+'foreign-account-group',
                     account_refs=[{'platform': 'tiktok', 'account_id': account_id}],
-                )
-
-        with bound_scope(Scope(self.ids[1], self.apps[1])):
-            with self.assertRaises(ValueError):
-                creative_group_repository.create(
-                    name=self.prefix+'foreign-creative-group',
-                    asset_refs=[{'kind': 'landing_page', 'id': asset['id']}],
                 )
 
         for foreign_scope in (
@@ -530,6 +516,64 @@ class TenantIsolationTests(unittest.TestCase):
             self.client.post('/api/naming-rules', headers=self.limited_headers, json=payload).status_code,
             403,
         )
+
+    def test_creative_group_api_is_scoped_audited_and_viewer_is_read_only(self):
+        from db import get_app_conn
+
+        master = self.client.post('/api/material-catalog/masters', headers=self.headers[0], json={
+            'name': self.prefix+' creative material', 'material_type': 'video',
+        })
+        self.assertEqual(master.status_code, 201, master.text)
+        material_id = master.json()['id']
+        version = self.client.post(
+            f'/api/material-catalog/masters/{material_id}/versions',
+            headers=self.headers[0],
+            json={'source_filename': 'creative.mp4', 'mime_type': 'video/mp4', 'size_bytes': 128},
+        )
+        self.assertEqual(version.status_code, 201, version.text)
+        version_id = version.json()['id']
+        attached = self.client.post('/api/material-catalog/references', headers=self.headers[0], json={
+            'material_id': material_id, 'selection_mode': 'latest', 'status': 'selected',
+        })
+        self.assertEqual(attached.status_code, 201, attached.text)
+
+        payload = {'name': self.prefix+' creative group', 'materials': [{
+            'material_id': material_id, 'selection_mode': 'latest', 'selected_version_id': None,
+        }]}
+        created = self.client.post('/api/creative-groups', headers=self.headers[0], json=payload)
+        self.assertEqual(created.status_code, 201, created.text)
+        group = created.json()['data']
+        self.assertFalse(group['can_deliver'])
+        self.assertTrue(group['blocking_reasons'])
+        self.assertEqual(self.client.get('/api/creative-groups', headers=self.limited_headers).status_code, 200)
+        self.assertEqual(self.client.post('/api/creative-groups', headers=self.limited_headers, json=payload).status_code, 403)
+        self.assertEqual(self.client.get('/api/creative-groups', headers=self.same_tenant_headers).json()['data'], [])
+        self.assertEqual(self.client.get(f"/api/creative-groups/{group['id']}", headers=self.headers[1]).status_code, 404)
+
+        with get_app_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE material_versions SET upload_status='uploaded' WHERE tenant_id=%s AND id=%s",
+                (self.ids[0], version_id),
+            )
+            conn.commit()
+        refreshed = self.client.get(f"/api/creative-groups/{group['id']}", headers=self.headers[0])
+        self.assertTrue(refreshed.json()['data']['can_deliver'])
+        with get_app_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT COUNT(*) AS total FROM app_oplog WHERE tenant_id=%s AND target_type='creative_group' AND target_id=%s",
+                (self.ids[0], str(group['id'])),
+            )
+            self.assertGreaterEqual(int(cur.fetchone()['total']), 1)
+
+        self.assertEqual(self.client.delete(f"/api/creative-groups/{group['id']}", headers=self.headers[0]).status_code, 200)
+        self.assertEqual(self.client.delete(f'/api/material-catalog/references/{material_id}', headers=self.headers[0]).status_code, 200)
+        with get_app_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM material_versions WHERE tenant_id=%s AND material_id=%s", (self.ids[0], material_id))
+            cur.execute("DELETE FROM material_masters WHERE tenant_id=%s AND id=%s", (self.ids[0], material_id))
+            conn.commit()
 
     def test_accounts_cannot_be_read_mutated_rebound_or_overwritten_by_other_tenant(self):
         payload = {'platform': 'tiktok', 'account_id': self.prefix+'acct', 'account_name': self.prefix, 'access_token': 'test-only-no-platform-access', 'app_secret': 'test-secret', 'currency': 'USD'}

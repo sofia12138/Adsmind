@@ -15,7 +15,6 @@ from db import get_app_conn
 
 RESOURCE_TABLES = {
     "account_group": ("app_account_groups", "account_refs"),
-    "creative_group": ("app_creative_groups", "asset_refs"),
     "naming_rule": ("app_naming_rules", "rule"),
 }
 

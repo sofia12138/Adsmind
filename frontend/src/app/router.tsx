@@ -48,6 +48,7 @@ import PlatformAuthorizationPage from '@/pages/PlatformAuthorizationPage'
 import DramaCatalogPage from '@/features/drama-catalog/DramaCatalogPage'
 import AccountGroupsPage from '@/pages/AccountGroupsPage'
 import NamingRulesPage from '@/pages/NamingRulesPage'
+import CreativeGroupsPage from '@/pages/CreativeGroupsPage'
 
 function G({ panelKey, children }: { panelKey: string; children: React.ReactNode }) {
   return <AuthGuard panelKey={panelKey}>{children}</AuthGuard>
@@ -84,6 +85,7 @@ export const router = createBrowserRouter([
       { path: 'drama-catalog',      element: <G panelKey="creatives"><DramaCatalogPage /></G> },
       { path: 'creatives',          element: <G panelKey="creatives"><MaterialCatalogPage /></G> },
       { path: 'materials/upload',    element: <G panelKey="creatives"><MaterialCatalogPage openUpload /></G> },
+      { path: 'creative-groups',     element: <G panelKey="creative_groups"><CreativeGroupsPage /></G> },
       { path: 'auto-edit',          element: <G panelKey="creatives"><AutoEditPage /></G> },
       { path: 'distribution/youtube', element: <G panelKey="creatives"><DistributionPage section="tasks" /></G> },
       { path: 'distribution/records', element: <G panelKey="creatives"><DistributionPage section="records" /></G> },

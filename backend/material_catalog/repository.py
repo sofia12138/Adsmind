@@ -167,12 +167,14 @@ def get_reference(material_id: int) -> dict | None:
         cur = conn.cursor()
         cur.execute(
             """SELECT r.id AS reference_id, r.application_id, r.material_id, r.selected_version_id,
-                      r.selection_mode, r.status AS reference_status, r.notes, m.name, m.material_type,
-                      m.drama_id, m.latest_version_number, v.version_number AS selected_version_number,
-                      v.upload_status AS selected_version_upload_status
+                      r.selection_mode, r.status AS reference_status, r.notes, m.name, m.material_type, m.status AS material_status,
+                      m.drama_id, m.latest_version_number,
+                      CASE WHEN r.selection_mode='latest' THEN lv.version_number ELSE v.version_number END AS selected_version_number,
+                      CASE WHEN r.selection_mode='latest' THEN lv.upload_status ELSE v.upload_status END AS selected_version_upload_status
                FROM app_application_materials r
                JOIN material_masters m ON m.id=r.material_id AND m.tenant_id=r.tenant_id
                LEFT JOIN material_versions v ON v.id=r.selected_version_id AND v.tenant_id=r.tenant_id AND v.material_id=r.material_id
+               LEFT JOIN material_versions lv ON lv.tenant_id=m.tenant_id AND lv.material_id=m.id AND lv.version_number=m.latest_version_number
                WHERE r.tenant_id=%s AND r.application_id=%s AND r.material_id=%s""",
             (scope.tenant_id, scope.application_id, material_id),
         )
@@ -189,11 +191,13 @@ def list_references(page: int, page_size: int) -> dict:
         total = int(cur.fetchone()["total"])
         cur.execute(
             f"""SELECT r.id AS reference_id, r.application_id, r.material_id, r.selected_version_id,
-                       r.selection_mode, r.status AS reference_status, r.notes, m.name, m.material_type,
-                       m.drama_id, m.latest_version_number, v.version_number AS selected_version_number,
-                       v.upload_status AS selected_version_upload_status
+                       r.selection_mode, r.status AS reference_status, r.notes, m.name, m.material_type, m.status AS material_status,
+                       m.drama_id, m.latest_version_number,
+                       CASE WHEN r.selection_mode='latest' THEN lv.version_number ELSE v.version_number END AS selected_version_number,
+                       CASE WHEN r.selection_mode='latest' THEN lv.upload_status ELSE v.upload_status END AS selected_version_upload_status
                 FROM app_application_materials r JOIN material_masters m ON m.id=r.material_id AND m.tenant_id=r.tenant_id
                 LEFT JOIN material_versions v ON v.id=r.selected_version_id AND v.tenant_id=r.tenant_id AND v.material_id=r.material_id
+                LEFT JOIN material_versions lv ON lv.tenant_id=m.tenant_id AND lv.material_id=m.id AND lv.version_number=m.latest_version_number
                 WHERE {where} ORDER BY r.updated_at DESC, r.id DESC LIMIT %s OFFSET %s""",
             [*args, page_size, (page - 1) * page_size],
         )
