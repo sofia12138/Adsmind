@@ -1,10 +1,10 @@
-# 素材系统核心接口契约（0006）
+# 素材系统核心接口契约（0006，0011 扩展）
 
 ## 范围
 
 - `material_masters`、`material_versions` 是租户级资源，可选关联同租户 `drama_masters`。
 - `app_application_materials` 只保存某应用对素材及版本策略的选择，不复制主档，也不代表平台素材。
-- 本阶段不包含平台素材映射、平台推送、预审核、转码或真实云存储写入。
+- 平台素材映射、平台推送、预审核和转码仍不在本契约范围；0011 新增的本地验证上传及云配置边界见 [素材上传与存储契约](material-upload-contract.md)。
 - 默认存储后端为 `unconfigured`。版本登记成功只表示元数据已持久化，`upload_status` 必须保持
   `pending_upload`，`upload.available=false`，不得解释为文件上传成功。
 
