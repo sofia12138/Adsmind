@@ -86,7 +86,7 @@ def list_creative_groups() -> list[dict]:
         cur = conn.cursor()
         cur.execute(
             """SELECT gm.material_id, g.id AS creative_group_id, g.name AS creative_group_name,
-                      g.status AS creative_group_status
+                      'active' AS creative_group_status
                  FROM app_creative_group_materials gm
                  JOIN app_creative_groups g
                    ON g.id=gm.creative_group_id AND g.tenant_id=gm.tenant_id
