@@ -49,6 +49,9 @@ import DramaCatalogPage from '@/features/drama-catalog/DramaCatalogPage'
 import AccountGroupsPage from '@/pages/AccountGroupsPage'
 import NamingRulesPage from '@/pages/NamingRulesPage'
 import CreativeGroupsPage from '@/pages/CreativeGroupsPage'
+import AdCreationDraftsPage from '@/pages/AdCreationDraftsPage'
+import AdCreationDraftNewPage from '@/pages/AdCreationDraftNewPage'
+import AdCreationDraftDetailPage from '@/pages/AdCreationDraftDetailPage'
 
 function G({ panelKey, children }: { panelKey: string; children: React.ReactNode }) {
   return <AuthGuard panelKey={panelKey}>{children}</AuthGuard>
@@ -78,6 +81,9 @@ export const router = createBrowserRouter([
       { path: 'console/tiktok',     element: <G panelKey="tiktok_console"><TikTokConsolePage /></G> },
       { path: 'console/meta',       element: <G panelKey="meta_console"><MetaConsolePage /></G> },
       { path: 'ads/drafts', element: <G panelKey="ad_create"><LaunchDraftsPage /></G> },
+      { path: 'ads/app-drafts', element: <G panelKey="ad_creation_drafts"><AdCreationDraftsPage /></G> },
+      { path: 'ads/app-drafts/new', element: <G panelKey="ad_creation_drafts"><AdCreationDraftNewPage /></G> },
+      { path: 'ads/app-drafts/:id', element: <G panelKey="ad_creation_drafts"><AdCreationDraftDetailPage /></G> },
       { path: 'ads/create',         element: <G panelKey="ad_create"><AdsCreatePage /></G> },
       // 旧链接兼容：保留 ?template_id= 透传，重定向到统一新建广告页
       { path: 'ads/create-tiktok-minis', element: <RedirectKeepQuery to="/ads/create" /> },

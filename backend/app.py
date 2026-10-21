@@ -512,11 +512,13 @@ def _register_routers(application: FastAPI):
     from drama_catalog.routes import router as drama_catalog_router
     from material_catalog.routes import router as material_catalog_router
     from creative_groups.routes import router as creative_groups_router
+    from ad_creation.routes import router as ad_creation_router
     from routes.application_settings import router as application_settings_router
     for r in [
         drama_catalog_router,
         material_catalog_router,
         creative_groups_router,
+        ad_creation_router,
         application_settings_router,
         distribution_router,
         launch_drafts_router,

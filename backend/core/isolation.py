@@ -136,6 +136,7 @@ APPLICATION_OWNED_TABLES = {
     'app_naming_rules',
     'app_execution_records',
     'app_launch_drafts',
+    'app_ad_creation_drafts',
     'app_distribution_channels',
     'app_distribution_drafts',
 }

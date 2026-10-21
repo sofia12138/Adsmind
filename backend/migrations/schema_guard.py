@@ -23,6 +23,10 @@ APP_RESOURCE_REQUIREMENTS = {
     "app_creative_group_materials": {"tenant_id", "application_id", "creative_group_id", "material_id", "selection_mode", "selected_version_id"},
     "app_naming_rules": {"tenant_id", "application_id", "rule"},
     "app_execution_records": {"tenant_id", "application_id", "status"},
+    "app_ad_creation_drafts": {
+        "tenant_id", "application_id", "status", "revision",
+        "execution_snapshot", "execution_snapshot_hash",
+    },
     "drama_masters": {"tenant_id", "normalized_title", "content_fingerprint", "revision"},
     "app_application_dramas": {"tenant_id", "application_id", "drama_id", "status"},
     "material_masters": {"tenant_id", "drama_id", "material_type", "latest_version_number", "revision"},

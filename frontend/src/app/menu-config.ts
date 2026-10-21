@@ -51,6 +51,7 @@ export const menuConfig: MenuItem[] = [
       { id: 'tiktok-console', label: 'TikTok操作台', icon: Monitor, path: '/console/tiktok', panelKey: 'tiktok_console' },
       { id: 'meta-console', label: 'Meta操作台', icon: Monitor, path: '/console/meta', panelKey: 'meta_console' },
       { id: 'ads-drafts', label: '广告草稿', icon: PlusCircle, path: '/ads/drafts', panelKey: 'ad_create' },
+      { id: 'app-ad-drafts', label: '应用广告草稿', icon: FileText, path: '/ads/app-drafts', panelKey: 'ad_creation_drafts' },
       { id: 'ads-create', label: '新建广告', icon: PlusCircle, path: '/ads/create', panelKey: 'ad_create' },
       { id: 'templates', label: '模板管理', icon: FileText, path: '/templates', panelKey: 'template_mgmt' },
     ],

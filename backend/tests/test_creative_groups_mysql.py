@@ -79,8 +79,11 @@ class CreativeGroupsMySQLTests(unittest.TestCase):
             # The JSON compatibility payload preserves the contract across a
             # deliberate 0007 rollback/re-upgrade and is backfilled safely.
             from migrations.versions import v0007_creative_groups as migration
+            from migrations.versions import v0008_ad_creation_drafts as ad_draft_migration
+            ad_draft_migration.downgrade()
             migration.downgrade()
             migration.upgrade()
+            ad_draft_migration.upgrade()
             self.assertFalse(group_service.get_group(latest["id"])["can_deliver"])
             self.assertTrue(group_service.get_group(pinned["id"])["can_deliver"])
 
