@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from core.isolation import account_clause
+from core.isolation import account_clause, require_owned_accounts
 from db import get_biz_conn
 
 
@@ -35,6 +35,7 @@ def upsert_batch(rows: list[dict]) -> int:
     if not rows:
         return 0
     with get_biz_conn() as conn:
+        require_owned_accounts(conn, rows)
         cur = conn.cursor()
         sql = """INSERT INTO biz_adgroup_daily_normalized
                  (platform, account_id, campaign_id, campaign_name,

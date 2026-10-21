@@ -84,3 +84,6 @@ python -m migrations.cli upgrade
 执行前备份恢复。`0002_scope_foreign_keys` 在检查无孤立记录后添加应用/租户复合外键，支持
 `python -m migrations.cli downgrade` 回滚最近一版。MySQL DDL 会隐式提交；执行中断时必须先
 核对约束和 `app_schema_migrations`，不能盲目重跑或手工伪造版本。
+
+第 1 阶段实际覆盖范围和剧目库下一阶段接口见
+[tenant-application-phase-1.md](tenant-application-phase-1.md)。

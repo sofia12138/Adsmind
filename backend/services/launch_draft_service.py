@@ -210,8 +210,12 @@ class Run:
 
     def persist(self):
         with get_app_conn() as conn:
-            conn.cursor().execute('UPDATE app_launch_drafts SET checkpoints=%s WHERE id=%s',
-                                  (json.dumps(self.points, ensure_ascii=False), self.row['id']))
+            conn.cursor().execute(
+                '''UPDATE app_launch_drafts SET checkpoints=%s
+                   WHERE id=%s AND tenant_id=%s AND application_id=%s''',
+                (json.dumps(self.points, ensure_ascii=False), self.row['id'],
+                 self.row['tenant_id'], self.row['application_id']),
+            )
             conn.commit()
 
 
@@ -276,7 +280,13 @@ async def execute(row, revision, application, user):
         raise HTTPException(422, {'message': '创建条件未满足', 'checks': report['checks']})
     with get_app_conn() as conn:
         cur = conn.cursor()
-        cur.execute("UPDATE app_launch_drafts SET status='RUNNING', revision=revision+1, last_error=NULL WHERE id=%s AND revision=%s AND status IN ('DRAFT','FAILED','PARTIAL')", (row['id'], revision))
+        cur.execute(
+            """UPDATE app_launch_drafts
+               SET status='RUNNING', revision=revision+1, last_error=NULL
+               WHERE id=%s AND tenant_id=%s AND application_id=%s
+                 AND revision=%s AND status IN ('DRAFT','FAILED','PARTIAL')""",
+            (row['id'], application.tenant_id, application.id, revision),
+        )
         claimed = cur.rowcount
         conn.commit()
     if not claimed:
@@ -298,8 +308,12 @@ async def execute(row, revision, application, user):
     finally:
         _active.reset(token)
     with get_app_conn() as conn:
-        conn.cursor().execute('UPDATE app_launch_drafts SET status=%s, result=%s, last_error=%s WHERE id=%s',
-                              (status, json.dumps(clean(result), ensure_ascii=False), error, row['id']))
+        conn.cursor().execute(
+            '''UPDATE app_launch_drafts SET status=%s, result=%s, last_error=%s
+               WHERE id=%s AND tenant_id=%s AND application_id=%s''',
+            (status, json.dumps(clean(result), ensure_ascii=False), error,
+             row['id'], application.tenant_id, application.id),
+        )
         conn.commit()
     return load(row['id'], application, user)
 

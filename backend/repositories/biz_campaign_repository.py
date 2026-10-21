@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from core.isolation import tenant_cursor
+from core.isolation import require_owned_accounts, tenant_cursor
 from db import get_biz_conn
 
 
@@ -13,6 +13,7 @@ def upsert(*, platform: str, account_id: str, campaign_id: str,
            buying_type: str = "", status: str = "",
            is_active: bool = True, raw_json: dict | None = None) -> int:
     with get_biz_conn() as conn:
+        require_owned_accounts(conn, ({'platform': platform, 'account_id': account_id},))
         cur = tenant_cursor(conn, 'biz_campaigns')
         cur.execute(
             """INSERT INTO biz_campaigns
@@ -40,6 +41,7 @@ def upsert_batch(rows: list[dict]) -> int:
     if not rows:
         return 0
     with get_biz_conn() as conn:
+        require_owned_accounts(conn, rows)
         cur = tenant_cursor(conn, 'biz_campaigns')
         sql = """INSERT INTO biz_campaigns
                  (platform, account_id, campaign_id, campaign_name,

@@ -236,8 +236,8 @@ async def _sync_attribution_intraday_job():
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     validate_db_config()
-    from migrations.schema_guard import assert_schema_ready
-    assert_schema_ready()
+    from migrations.schema_guard import assert_release_schema_ready
+    assert_release_schema_ready()
 
     # 阶段 2：加密链路自检
     # ────────────────────────────────────────────────────────

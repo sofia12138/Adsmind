@@ -7,7 +7,11 @@ def run():
     from config import get_settings
     from services.platform_authorization import ensure_table
     ensure_table()
-    for table in sorted(OWNED_TABLES):
+    # biz_ad_accounts is application-owned at runtime, but this legacy baseline
+    # still has to add its tenant/application columns before later migrations
+    # can enforce that stronger boundary.  New v0003 tables are not part of the
+    # legacy bootstrap and are created explicitly by their own migration.
+    for table in sorted(OWNED_TABLES | {'biz_ad_accounts'}):
         is_biz = table in ('biz_ad_accounts', 'tiktok_material_uploads')
         if is_biz and not get_settings().biz_mysql_database:
             continue

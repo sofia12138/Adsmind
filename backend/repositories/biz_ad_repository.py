@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from core.isolation import tenant_cursor
+from core.isolation import require_owned_accounts, tenant_cursor
 from db import get_biz_conn
 
 
@@ -10,6 +10,7 @@ def upsert_batch(rows: list[dict]) -> int:
     if not rows:
         return 0
     with get_biz_conn() as conn:
+        require_owned_accounts(conn, rows)
         cur = tenant_cursor(conn, 'biz_ads')
         sql = """INSERT INTO biz_ads
                  (platform, account_id, campaign_id, adgroup_id, ad_id, ad_name,

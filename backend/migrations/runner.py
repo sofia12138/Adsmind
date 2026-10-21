@@ -13,6 +13,7 @@ from db import get_app_conn
 MODULES = (
     "migrations.versions.v0001_legacy_baseline",
     "migrations.versions.v0002_scope_foreign_keys",
+    "migrations.versions.v0003_application_resources",
 )
 
 

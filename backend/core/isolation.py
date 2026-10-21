@@ -123,7 +123,21 @@ def check_entity(platform, level, entity_id):
 
 OWNED_TABLES = {
     'app_templates', 'app_oplog', 'asset_landing_pages', 'asset_copy_packs',
-    'asset_region_groups', 'tiktok_material_uploads', 'biz_ad_accounts',
+    'asset_region_groups', 'tiktok_material_uploads',
+}
+
+# Tables whose records are never meaningful outside one verified application.
+# Keep this list deliberately small: using a tenant-only cursor for one of these
+# tables would make same-tenant, cross-application access possible.
+APPLICATION_OWNED_TABLES = {
+    'biz_ad_accounts',
+    'app_account_groups',
+    'app_creative_groups',
+    'app_naming_rules',
+    'app_execution_records',
+    'app_launch_drafts',
+    'app_distribution_channels',
+    'app_distribution_drafts',
 }
 
 ACCOUNT_TABLES = {'biz_campaigns', 'biz_adgroups', 'biz_ads'}
@@ -139,13 +153,43 @@ def account_clause():
     )
 
 
+def require_owned_accounts(conn, rows) -> None:
+    """Reject account-backed writes unless every row belongs to this app.
+
+    Sync repositories use platform responses as input, but repository methods
+    remain a security boundary and cannot trust a caller-provided account id.
+    """
+    scope = require_scope(application=True)
+    requested = {
+        (str(row.get('platform') or ''), str(row.get('account_id') or ''))
+        for row in rows
+    }
+    if not requested or any(not platform or not account_id for platform, account_id in requested):
+        raise ScopeNotBoundError('业务记录缺少广告账户作用域')
+    placeholders = ','.join(['(%s,%s)'] * len(requested))
+    params = []
+    for platform, account_id in sorted(requested):
+        params.extend((platform, account_id))
+    params.extend((scope.tenant_id, scope.application_id))
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT platform, account_id FROM biz_ad_accounts '
+        f'WHERE (platform, account_id) IN ({placeholders}) '
+        'AND tenant_id=%s AND application_id=%s',
+        params,
+    )
+    owned = {(str(row['platform']), str(row['account_id'])) for row in cur.fetchall()}
+    if owned != requested:
+        raise ScopeNotBoundError('广告账户不属于当前应用')
+
+
 def scoped_sql(sql, table):
     """Only simple, single-table CRUD. Unsupported shapes fail closed.
 
     Tenant values come exclusively from verified context, never user input.
     Parameters retain their original positions. This is not a general SQL parser.
     """
-    if table not in OWNED_TABLES | ACCOUNT_TABLES:
+    if table not in OWNED_TABLES | APPLICATION_OWNED_TABLES | ACCOUNT_TABLES:
         raise ValueError('Unsupported tenant table')
     sql = sql.strip()
     if ';' in sql or re.search(r'\b(JOIN|UNION|SELECT.*SELECT)\b', sql, re.I | re.S):
@@ -154,14 +198,21 @@ def scoped_sql(sql, table):
     if re.match(r'^INSERT\s+INTO\s+'+table+r'\s*\(', sql, re.I):
         if table in ACCOUNT_TABLES:
             return sql  # structure writes only follow authenticated platform reads
-        sql = re.sub(r'^(INSERT\s+INTO\s+'+table+r'\s*\()', r'\1tenant_id, ', sql, count=1, flags=re.I)
-        return re.sub(r'\bVALUES\s*\(', f'VALUES ({tid}, ', sql, count=1, flags=re.I)
+        columns = f'tenant_id, application_id, ' if table in APPLICATION_OWNED_TABLES else 'tenant_id, '
+        values = f'{tid}, {int(application_id())}, ' if table in APPLICATION_OWNED_TABLES else f'{tid}, '
+        sql = re.sub(r'^(INSERT\s+INTO\s+'+table+r'\s*\()', rf'\1{columns}', sql, count=1, flags=re.I)
+        return re.sub(r'\bVALUES\s*\(', f'VALUES ({values}', sql, count=1, flags=re.I)
     if not re.match(r'^(SELECT\s+.+\s+FROM|UPDATE|DELETE\s+FROM)\s+'+table+r'\b', sql, re.I | re.S):
         raise ValueError('Unsupported tenant CRUD statement')
     match = re.search(r'\b(ORDER\s+BY|LIMIT|FOR\s+UPDATE)\b', sql, re.I)
     head, tail = (sql[:match.start()], sql[match.start():]) if match else (sql, '')
     where = re.search(r'\bWHERE\b', head, re.I)
-    condition = account_clause() if table in ACCOUNT_TABLES else f'tenant_id = {tid}'
+    if table in ACCOUNT_TABLES:
+        condition = account_clause()
+    elif table in APPLICATION_OWNED_TABLES:
+        condition = f'tenant_id = {tid} AND application_id = {int(application_id())}'
+    else:
+        condition = f'tenant_id = {tid}'
     if where:
         head = head[:where.end()] + f' {condition} AND (' + head[where.end():].strip() + ') '
     else:

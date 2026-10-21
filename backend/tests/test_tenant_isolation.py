@@ -66,6 +66,28 @@ class ScopeContractTests(unittest.TestCase):
         finally:
             current_scope.reset(token)
 
+    def test_application_owned_crud_injects_and_filters_both_scope_columns(self):
+        token = current_scope.set(Scope(42, 73))
+        try:
+            inserted = scoped_sql(
+                'INSERT INTO app_account_groups (name, account_refs) VALUES (%s, %s)',
+                'app_account_groups',
+            )
+            self.assertIn(
+                '(tenant_id, application_id, name, account_refs) VALUES (42, 73, %s, %s)',
+                inserted,
+            )
+            for statement in (
+                'SELECT * FROM app_account_groups WHERE id=%s',
+                'UPDATE app_account_groups SET name=%s WHERE id=%s',
+                'DELETE FROM app_account_groups WHERE id=%s',
+            ):
+                scoped = scoped_sql(statement, 'app_account_groups')
+                self.assertIn('tenant_id = 42', scoped)
+                self.assertIn('application_id = 73', scoped)
+        finally:
+            current_scope.reset(token)
+
     def test_migration_plan_is_reviewable_and_has_a_reversible_scope_step(self):
         from migrations.runner import plan
         rows = plan()
@@ -120,7 +142,7 @@ class TenantIsolationTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         from db import get_app_conn, get_biz_conn
-        from core.isolation import OWNED_TABLES
+        from core.isolation import APPLICATION_OWNED_TABLES, OWNED_TABLES
         with get_app_conn() as conn:
             cur = conn.cursor()
             for tid in cls.ids:
@@ -132,6 +154,8 @@ class TenantIsolationTests(unittest.TestCase):
                     (tid,),
                 )
                 for table in sorted(OWNED_TABLES - {'biz_ad_accounts', 'tiktok_material_uploads'}):
+                    cur.execute(f'DELETE FROM {table} WHERE tenant_id=%s', (tid,))
+                for table in sorted(APPLICATION_OWNED_TABLES - {'biz_ad_accounts'}):
                     cur.execute(f'DELETE FROM {table} WHERE tenant_id=%s', (tid,))
                 for table in ('app_oauth_sessions', 'app_launch_drafts', 'app_oauth_credentials', 'app_tenant_members', 'app_applications', 'app_tenants'):
                     key = 'id' if table == 'app_tenants' else 'tenant_id'
@@ -246,6 +270,19 @@ class TenantIsolationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         other_accounts = self.client.get('/api/ad-accounts/', headers=self.same_tenant_headers).json()['data']
         self.assertNotIn(account_id, [row['account_id'] for row in other_accounts])
+        account = next(row for row in self.client.get('/api/ad-accounts/', headers=self.headers[0]).json()['data'] if row['account_id'] == account_id)
+        self.assertEqual(self.client.get('/api/ad-accounts/'+str(account['id']), headers=self.same_tenant_headers).json(), {'error': 'not_found'})
+        self.client.put('/api/ad-accounts/'+str(account['id']), headers=self.same_tenant_headers, json={'account_name': 'same-tenant-hijack'})
+        self.client.delete('/api/ad-accounts/'+str(account['id']), headers=self.same_tenant_headers)
+        self.assertEqual(self.client.get('/api/ad-accounts/'+str(account['id']), headers=self.headers[0]).json()['data']['account_name'], account_id)
+        from core.isolation import bound_scope
+        from repositories import biz_campaign_repository
+        with bound_scope(Scope(self.ids[0], self.same_tenant_app)):
+            with self.assertRaises(ScopeNotBoundError):
+                biz_campaign_repository.upsert(
+                    platform='tiktok', account_id=account_id,
+                    campaign_id=self.prefix+'foreign-write', campaign_name='must not persist',
+                )
 
         payload = {
             'request_key': str(uuid.uuid4()),
@@ -259,6 +296,50 @@ class TenantIsolationTests(unittest.TestCase):
         self.assertEqual(draft.status_code, 200, draft.text)
         other_drafts = self.client.get('/api/launch-drafts', headers=self.same_tenant_headers).json()['data']
         self.assertEqual(other_drafts['total'], 0)
+
+    def test_application_configuration_repositories_hide_foreign_ids(self):
+        from core.isolation import bound_scope
+        from repositories import (
+            account_group_repository,
+            creative_group_repository,
+            execution_record_repository,
+            naming_rule_repository,
+        )
+
+        cases = (
+            (account_group_repository, {'account_refs': [{'platform': 'tiktok', 'account_id': 'a'}]}),
+            (creative_group_repository, {'asset_refs': [{'asset_id': 'asset-a'}]}),
+            (naming_rule_repository, {'rule': {'pattern': '{drama}-{language}'}}),
+        )
+        with bound_scope(Scope(self.ids[0], self.apps[0])):
+            created = []
+            for repository, field in cases:
+                row = repository.create(name=self.prefix+repository.__name__, created_by=self.prefix, **field)
+                created.append((repository, field, row))
+            execution = execution_record_repository.create(
+                operation='campaign.create', target_type='campaign', target_id='target-a',
+                request_payload={'name': 'safe'}, created_by=self.prefix,
+            )
+
+        for foreign_scope in (
+            Scope(self.ids[0], self.same_tenant_app),
+            Scope(self.ids[1], self.apps[1]),
+        ):
+            with bound_scope(foreign_scope):
+                for repository, field, row in created:
+                    self.assertIsNone(repository.get(row['id']))
+                    self.assertIsNone(repository.update(row['id'], name='hijack', **field))
+                    self.assertFalse(repository.delete(row['id']))
+                self.assertIsNone(execution_record_repository.get(execution['id']))
+                self.assertIsNone(execution_record_repository.finish(execution['id'], status='SUCCEEDED'))
+
+        with bound_scope(Scope(self.ids[0], self.apps[0])):
+            for repository, _, row in created:
+                self.assertEqual(repository.get(row['id'])['name'], self.prefix+repository.__name__)
+            finished = execution_record_repository.finish(
+                execution['id'], status='SUCCEEDED', result={'platform_id': 'safe-id'}
+            )
+            self.assertEqual(finished['status'], 'SUCCEEDED')
 
     def test_accounts_cannot_be_read_mutated_rebound_or_overwritten_by_other_tenant(self):
         payload = {'platform': 'tiktok', 'account_id': self.prefix+'acct', 'account_name': self.prefix, 'access_token': 'test-only-no-platform-access', 'app_secret': 'test-secret', 'currency': 'USD'}

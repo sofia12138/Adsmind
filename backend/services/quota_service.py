@@ -61,15 +61,7 @@ def count_applications(tenant_id: int) -> int:
 
 def count_accounts(tenant_id: int) -> int:
     """统计该租户已绑定到任意应用的广告账号数（去重 account_id）。"""
-    apps = application_repository.list_by_tenant(int(tenant_id), include_archived=False)
-    seen: set[str] = set()
-    for a in apps:
-        bound = biz_account_repository.list_by_application(int(a["id"]))
-        for b in bound:
-            acc = str(b.get("account_id") or "")
-            if acc:
-                seen.add(acc)
-    return len(seen)
+    return biz_account_repository.count_distinct_for_tenant(int(tenant_id))
 
 
 def count_members(tenant_id: int) -> int:
@@ -189,11 +181,8 @@ def enforce_account_quota(tenant_id: int, *, additional: int = 1,
     if _is_internal(tenant_id):
         return
     if existing_account_id:
-        apps = application_repository.list_by_tenant(int(tenant_id), include_archived=False)
-        for a in apps:
-            bound = biz_account_repository.list_by_application(int(a["id"]))
-            if any(str(b.get("account_id")) == str(existing_account_id) for b in bound):
-                return  # 已是本租户的账号，不增加 distinct count
+        if biz_account_repository.exists_for_tenant(int(tenant_id), str(existing_account_id)):
+            return  # 已是本租户的账号，不增加 distinct count
 
     plan_id = _get_tenant_plan_id(int(tenant_id))
     limit = plan_repository.get_quota_for_plan(plan_id)["accounts_limit"]
