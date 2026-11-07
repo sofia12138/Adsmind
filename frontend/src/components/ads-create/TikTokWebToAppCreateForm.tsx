@@ -467,7 +467,7 @@ export default function TikTokWebToAppCreateForm({ tpl }: Props) {
             accent="pink"
           />
 
-          {/* Landing Page URL（支持手填或从落地页库选择） */}
+          {/* Landing Page URL（支持手填或从推广链接选择） */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-medium text-gray-600">Landing Page URL <span className="text-red-400">*</span></label>
@@ -477,7 +477,7 @@ export default function TikTokWebToAppCreateForm({ tpl }: Props) {
                 className="text-[11px] text-blue-500 hover:text-blue-600 flex items-center gap-1"
               >
                 <Library className="w-3 h-3" />
-                从落地页库选择
+                从推广链接选择
               </button>
             </div>
             <input
@@ -493,7 +493,7 @@ export default function TikTokWebToAppCreateForm({ tpl }: Props) {
             {landingPageId && (
               <p className="text-[11px] text-blue-500 mt-1 flex items-center gap-1">
                 <Library className="w-3 h-3" />
-                来自落地页库：{landingPageName || `#${landingPageId}`}
+                来自推广链接：{landingPageName || `#${landingPageId}`}
               </p>
             )}
           </div>

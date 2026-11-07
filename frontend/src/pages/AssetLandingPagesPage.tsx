@@ -48,12 +48,12 @@ function FormDialog({ item, onClose, onSave, saving }: FormDialogProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-800">{item ? '编辑落地页' : '新建落地页'}</h3>
+          <h3 className="text-lg font-semibold text-gray-800">{item ? '编辑推广链接' : '新建推广链接'}</h3>
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">名称 <span className="text-red-400">*</span></label>
-            <input type="text" required className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:outline-none" value={name} onChange={e => setName(e.target.value)} placeholder="落地页名称" />
+            <input type="text" required className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-100 focus:outline-none" value={name} onChange={e => setName(e.target.value)} placeholder="推广链接名称" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">URL <span className="text-red-400">*</span></label>
@@ -140,11 +140,11 @@ export default function AssetLandingPagesPage() {
 
   return (
     <div className="max-w-7xl mx-auto">
-      <PageHeader title="落地页库" description="管理广告投放落地页 URL，支持在广告创建时快速选择" />
+      <PageHeader title="推广链接" description="管理广告投放推广链接 URL，支持在广告创建时快速选择" />
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <button className="text-sm px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-1.5" onClick={() => setEditItem(null)}>
-          <Plus className="w-3.5 h-3.5" />新建落地页
+          <Plus className="w-3.5 h-3.5" />新建推广链接
         </button>
         <div className="relative flex items-center">
           <Search className="absolute left-2.5 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
@@ -171,9 +171,9 @@ export default function AssetLandingPagesPage() {
       )}
 
       {!isLoading && !isError && (
-        <SectionCard title={`落地页（${list.length}）`} noPadding>
+        <SectionCard title={`推广链接（${list.length}）`} noPadding>
           {list.length === 0 ? (
-            <div className="px-5 py-12 text-center text-sm text-gray-300">暂无落地页，请点击"新建落地页"</div>
+            <div className="px-5 py-12 text-center text-sm text-gray-300">暂无推广链接，请点击"新建推广链接"</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

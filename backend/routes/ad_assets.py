@@ -1,4 +1,4 @@
-"""广告资产库 — 落地页 / 文案包 / 地区组 统一 API"""
+"""广告资产库 — 推广链接 / 文案包 / 地区组 统一 API"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends, Query
@@ -13,7 +13,7 @@ from repositories import (
 router = APIRouter(prefix="/ad-assets", tags=["广告资产库"])
 
 # ═══════════════════════════════════════════════════════════
-#  落地页库
+#  推广链接
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/landing-pages")
@@ -30,7 +30,7 @@ async def list_landing_pages(
 async def get_landing_page(asset_id: int, _user: User = Depends(get_current_user)):
     row = asset_landing_page_repository.get_by_id(asset_id)
     if not row:
-        return {"error": "落地页不存在"}
+        return {"error": "推广链接不存在"}
     return {"data": row}
 
 
@@ -47,7 +47,7 @@ async def create_landing_page(body: dict = Body(...), user: User = Depends(get_c
         created_by=user.username,
         org_id=body.get("org_id", ""),
     )
-    log_operation(username=user.username, action="创建落地页资产",
+    log_operation(username=user.username, action="创建推广链接资产",
                   target_type="asset_landing_page", target_id=str(row["id"]))
     return {"data": row}
 
@@ -56,8 +56,8 @@ async def create_landing_page(body: dict = Body(...), user: User = Depends(get_c
 async def update_landing_page(asset_id: int, body: dict = Body(...), user: User = Depends(get_current_user)):
     row = asset_landing_page_repository.update(asset_id, **body)
     if not row:
-        return {"error": "落地页不存在"}
-    log_operation(username=user.username, action="更新落地页资产",
+        return {"error": "推广链接不存在"}
+    log_operation(username=user.username, action="更新推广链接资产",
                   target_type="asset_landing_page", target_id=str(asset_id))
     return {"data": row}
 
@@ -66,8 +66,8 @@ async def update_landing_page(asset_id: int, body: dict = Body(...), user: User 
 async def delete_landing_page(asset_id: int, user: User = Depends(get_current_user)):
     ok = asset_landing_page_repository.delete(asset_id)
     if not ok:
-        return {"error": "落地页不存在"}
-    log_operation(username=user.username, action="删除落地页资产",
+        return {"error": "推广链接不存在"}
+    log_operation(username=user.username, action="删除推广链接资产",
                   target_type="asset_landing_page", target_id=str(asset_id))
     return {"ok": True}
 
@@ -76,8 +76,8 @@ async def delete_landing_page(asset_id: int, user: User = Depends(get_current_us
 async def toggle_landing_page(asset_id: int, user: User = Depends(get_current_user)):
     row = asset_landing_page_repository.toggle_status(asset_id)
     if not row:
-        return {"error": "落地页不存在"}
-    log_operation(username=user.username, action=f"{'启用' if row['status'] == 'active' else '停用'}落地页资产",
+        return {"error": "推广链接不存在"}
+    log_operation(username=user.username, action=f"{'启用' if row['status'] == 'active' else '停用'}推广链接资产",
                   target_type="asset_landing_page", target_id=str(asset_id))
     return {"data": row}
 

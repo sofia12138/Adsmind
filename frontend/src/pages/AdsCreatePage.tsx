@@ -861,12 +861,12 @@ export default function AdsCreatePage() {
                       </>
                     )}
                   </div>
-                  {/* URL + 落地页库 */}
+                  {/* URL + 推广链接 */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-xs font-medium text-gray-600">Landing Page URL <span className="text-red-400">*</span></label>
                       <button type="button" onClick={() => setShowLPPicker(true)} className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1">
-                        <Package className="w-3 h-3" />从落地页库选择
+                        <Package className="w-3 h-3" />从推广链接选择
                       </button>
                     </div>
                     <input type="url" value={w2a.landingPageUrl} onChange={e => setField('landingPageUrl', e.target.value)} placeholder="https://example.com/landing" className={inputCls} />

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   Link2, CheckCircle2, AlertTriangle, XCircle, Loader2,
-  PlayCircle, Trash2, ShieldOff, Sparkles,
+  PlayCircle, Trash2, ShieldOff,
 } from 'lucide-react'
 
 import { SectionCard } from '@/components/common/SectionCard'
@@ -10,10 +10,10 @@ import {
   getIntegrationOverview,
   listCredentials,
   startOAuth,
-  openOAuthWindow,
   revokeCredential,
   type IntegrationOverviewItem,
   type CredentialItem,
+  type AuthorizationPlatform,
 } from '@/services/integrations'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/utils/cn'
@@ -29,17 +29,18 @@ function fmtDate(s?: string | null): string {
 }
 
 export default function IntegrationsPage() {
-  const { currentApplication: application } = useAuth()
+  const { currentApplication: application, tenant, role } = useAuth()
+  const canAuthorize = role === 'admin' || role === 'super_admin'
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
   const overview = useQuery({
-    queryKey: ['integrations-overview'],
+    queryKey: ['integrations-overview', tenant.id, application?.id],
     queryFn: getIntegrationOverview,
   })
 
   const creds = useQuery({
-    queryKey: ['integrations-credentials'],
+    queryKey: ['integrations-credentials', tenant.id, application?.id],
     queryFn: () => listCredentials(),
   })
 
@@ -65,30 +66,21 @@ export default function IntegrationsPage() {
     return m
   }, [creds.data])
 
-  async function handleAuthorize(platform: string, opts?: { forceMock?: boolean }) {
+  async function handleAuthorize(platform: string) {
+    if (busy || !canAuthorize) return
+    if (platform !== 'tiktok' && platform !== 'meta') return
     if (!application?.id) {
       setMsg({ kind: 'err', text: '请先选择一个应用再授权' })
       return
     }
-    setBusy(`${platform}-${opts?.forceMock ? 'mock' : 'real'}`)
+    setBusy(platform)
     setMsg(null)
     try {
-      const res = await startOAuth(platform as 'tiktok' | 'meta', application.id, opts)
-      if (!res.mock_mode) {
-        window.location.assign(res.authorize_url)
-        return
-      }
-      const done = await openOAuthWindow(res.authorize_url)
-      setMsg({
-        kind: 'ok',
-        text: done.mock
-          ? `${PLATFORM_LABEL[platform]} 演示模式授权完成，已写入 mock 账号`
-          : `${PLATFORM_LABEL[platform]} 授权完成`,
-      })
-      creds.refetch()
-      overview.refetch()
-    } catch (e: any) {
-      setMsg({ kind: 'err', text: e?.message || '授权失败' })
+      const res = await startOAuth(platform as AuthorizationPlatform, application.id)
+      if (res.mock_mode || !res.authorize_url) throw new Error('官方授权连接不可用，请联系系统管理员')
+      window.location.assign(res.authorize_url)
+    } catch (e: unknown) {
+      setMsg({ kind: 'err', text: e instanceof Error ? e.message : '授权失败' })
     } finally {
       setBusy(null)
     }
@@ -113,6 +105,9 @@ export default function IntegrationsPage() {
           </div>
         )}
       </header>
+
+      {!canAuthorize && <p className="text-sm text-amber-700" role="status">请联系管理员连接广告平台。</p>}
+      {!application && <p className="text-sm text-amber-700" role="status">请先选择一个应用，再连接广告平台。</p>}
 
       {msg && (
         <div
@@ -150,7 +145,8 @@ export default function IntegrationsPage() {
                 key={item.platform}
                 item={item}
                 busyKey={busy}
-                onAuthorize={opts => handleAuthorize(item.platform, opts)}
+                canAuthorize={canAuthorize && !!application}
+                onAuthorize={() => handleAuthorize(item.platform)}
               />
             ))}
           </div>
@@ -167,7 +163,7 @@ export default function IntegrationsPage() {
         {creds.isError && (
           <div className="text-sm text-red-600 py-10 text-center">加载失败</div>
         )}
-        {!creds.isLoading && (creds.data?.items?.length ?? 0) === 0 && (
+        {creds.isSuccess && creds.data.items.length === 0 && (
           <div className="text-sm text-gray-400 py-12 text-center">
             还没有任何凭证。在上方点击"授权"按钮开始接入广告账号。
           </div>
@@ -205,14 +201,14 @@ export default function IntegrationsPage() {
 }
 
 function PlatformCard({
-  item, busyKey, onAuthorize,
+  item, busyKey, canAuthorize, onAuthorize,
 }: {
   item: IntegrationOverviewItem
   busyKey: string | null
-  onAuthorize: (opts?: { forceMock?: boolean }) => void
+  canAuthorize: boolean
+  onAuthorize: () => void
 }) {
-  const realBusy = busyKey === `${item.platform}-real`
-  const mockBusy = busyKey === `${item.platform}-mock`
+  const realBusy = busyKey === item.platform
   const total = item.credentials.total
   const stateBadge = (() => {
     if (total === 0) {
@@ -270,24 +266,13 @@ function PlatformCard({
         {(item.platform === 'tiktok' || item.platform === 'meta') ? (
           <button
             onClick={() => onAuthorize()}
-            disabled={realBusy || !item.configured}
+            disabled={busyKey !== null || !item.configured || !canAuthorize}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {realBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
             {item.platform === 'tiktok' ? '连接 TikTok' : '连接 Meta'}
           </button>
         ) : null}
-        {item.mock_available && (
-          <button
-            onClick={() => onAuthorize({ forceMock: true })}
-            disabled={mockBusy}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 disabled:opacity-50"
-            title="演示模式：生成 2 个 mock 账号"
-          >
-            {mockBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            演示授权
-          </button>
-        )}
       </div>
     </div>
   )

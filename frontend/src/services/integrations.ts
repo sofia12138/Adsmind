@@ -1,5 +1,37 @@
 import { apiFetch } from './api'
 
+export type AuthorizationPlatform = 'tiktok' | 'meta'
+
+export interface AuthorizationAccount {
+  account_id: string
+  account_name: string
+  currency: string
+  timezone: string
+}
+
+export interface PlatformAuthorization {
+  application_id: number
+  accounts: AuthorizationAccount[]
+}
+
+export function getPlatformAuthorization(platform: AuthorizationPlatform, sessionId: string, applicationId: number) {
+  return apiFetch<PlatformAuthorization>(
+    `/api/integrations/${platform}/authorization/${encodeURIComponent(sessionId)}`,
+    { headers: { 'X-Application-Id': String(applicationId) }, cache: 'no-store' },
+  )
+}
+
+export function finishPlatformAuthorization(platform: AuthorizationPlatform, sessionId: string, accountId: string, applicationId: number) {
+  return apiFetch<{ data: unknown }>(
+    `/api/integrations/${platform}/authorization/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'POST',
+      headers: { 'X-Application-Id': String(applicationId) },
+      body: JSON.stringify({ account_id: accountId }),
+    },
+  )
+}
+
 export interface OAuthStartResult {
   platform: string
   mock_mode: boolean
@@ -45,6 +77,7 @@ export async function startOAuth(
   if (opts?.forceMock) params.set('force_mock', '1')
   return apiFetch<OAuthStartResult>(
     `/api/integrations/${platform}/oauth/start?${params.toString()}`,
+    { headers: { 'X-Application-Id': String(applicationId) }, cache: 'no-store' },
   )
 }
 

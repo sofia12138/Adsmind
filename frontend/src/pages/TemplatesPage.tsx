@@ -609,7 +609,7 @@ export default function TemplatesPage() {
                 <label className="block text-xs font-medium text-gray-600">Landing Page URL</label>
                 {!readonly && (
                   <button type="button" onClick={() => setShowLPPicker(true)} className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1">
-                    <Package className="w-3 h-3" />从落地页库选择
+                    <Package className="w-3 h-3" />从推广链接选择
                   </button>
                 )}
               </div>

@@ -852,7 +852,7 @@ _PANEL_SEED = [
     # 阶段 7：团队邀请
     ("team",                   "团队成员",        "系统管理",   "/team",                    67),
     # 广告资产库
-    ("asset_landing_pages",    "落地页库",        "广告资产库", "/assets/landing-pages",    70),
+    ("asset_landing_pages",    "推广链接",        "广告资产库", "/assets/landing-pages",    70),
     ("asset_copy_packs",       "文案库",          "广告资产库", "/assets/copy-packs",       71),
     ("asset_region_groups",    "地区组库",        "广告资产库", "/assets/region-groups",    72),
     # TikTok 素材上传

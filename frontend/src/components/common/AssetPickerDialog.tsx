@@ -32,7 +32,7 @@ export function LandingPagePickerDialog({ open, onClose, onSelect }: LandingPage
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-800">从落地页库选择</h3>
+          <h3 className="text-lg font-semibold text-gray-800">从推广链接选择</h3>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4 text-gray-400" /></button>
         </div>
         <div className="px-6 py-3 border-b border-gray-50">
@@ -46,7 +46,7 @@ export function LandingPagePickerDialog({ open, onClose, onSelect }: LandingPage
             <div className="flex items-center justify-center py-12 text-gray-400"><Loader2 className="w-5 h-5 animate-spin mr-2" /><span className="text-sm">加载中...</span></div>
           )}
           {!isLoading && list.length === 0 && (
-            <div className="py-12 text-center text-sm text-gray-300">暂无可用落地页</div>
+            <div className="py-12 text-center text-sm text-gray-300">暂无可用推广链接</div>
           )}
           {!isLoading && list.map(item => (
             <button key={item.id} onClick={() => { onSelect(item); onClose() }}
